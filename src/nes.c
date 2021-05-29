@@ -6,7 +6,7 @@
 
 nes_t *create_nes() {
     nes_t *nes = calloc(1, sizeof(nes_t));
-
+    nes->memory_map = create_memory_map(0x10000);
     /* Add system RAM to memory map
      * in the following locations:
      * 
@@ -32,7 +32,7 @@ nes_t *create_nes() {
     
     nes->ram = calloc(1, 0x2000);
     for (int i = 0x0000; i < 0x2000; i += 0x2000) {
-        mm_add_node(&nes->memory_map, &nes->ram, 0x2000);
+        mm_add_node(nes->memory_map, &nes->ram, 0x2000);
     }
 
     /*
@@ -43,7 +43,7 @@ nes_t *create_nes() {
      */
     nes->ppu_registers = calloc(1, 0x8);
     for (int i = 0x2000; i < 0x4000; i += 0x8) {
-        mm_add_node(&nes->memory_map, &nes->ppu_registers, 0x8);
+        mm_add_node(nes->memory_map, &nes->ppu_registers, 0x8);
     }
 
     /*
@@ -52,30 +52,30 @@ nes_t *create_nes() {
      */
 
     nes->io_registers = calloc(1, 0x20);
-    mm_add_node(&nes->memory_map, &nes->io_registers, 0x20);
+    mm_add_node(nes->memory_map, &nes->io_registers, 0x20);
 
     /*
      *
      */
     nes->expansion_rom = calloc(1, 0x1fe0);
-    mm_add_node(&nes->memory_map, &nes->expansion_rom, 0x1fe0);
+    mm_add_node(nes->memory_map, &nes->expansion_rom, 0x1fe0);
 
     /*
      *
      */
     nes->sram = calloc(1, 0x2000);
-    mm_add_node(&nes->memory_map, &nes->sram, 0x2000);
+    mm_add_node(nes->memory_map, &nes->sram, 0x2000);
     
     /*
      *
      */
-    mm_add_node(&nes->memory_map, &nes->prg_rom_lower_bank, 0x4000);
-    mm_add_node(&nes->memory_map, &nes->prg_rom_upper_bank, 0x4000);
+    mm_add_node(nes->memory_map, &nes->prg_rom_lower_bank, 0x4000);
+    mm_add_node(nes->memory_map, &nes->prg_rom_upper_bank, 0x4000);
 
     // create the cpu
-    nes->cpu = create_6502(&nes->memory_map);
+    nes->cpu = create_6502(nes->memory_map);
 
-    return nes;
+    return nes; 
 }
 
 void destroy_nes(nes_t *nes) {
@@ -109,7 +109,7 @@ void nes_load_rom(nes_t *nes, const char *nes_src) {
 void nes_run(nes_t *nes) {
 
     // force system to always be in vblank
-    mm_write(&nes->memory_map, 0x2002, 0x80);
+    mm_write(nes->memory_map, 0x2002, 0x80);
 
     _6502_execute(nes->cpu); // SEI       (disable interrupt requests)
     _6502_execute(nes->cpu); // CLD       (disable decimal mode)

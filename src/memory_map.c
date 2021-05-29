@@ -3,61 +3,36 @@
 
 #include "memory_map.h"
 
-struct _mm_node_t {
-    unsigned int start;
-    unsigned int end;
-    unsigned char **data;
-    mm_node_t next;
-};
-
-mm_node_t create_node() {
-    mm_node_t node;
-    node = malloc(sizeof(*node));
-    return node;
+memory_map_t *create_memory_map(unsigned int capacity) {
+    memory_map_t *map = malloc(sizeof(memory_map_t));
+    map->buckets = calloc(capacity, sizeof(mm_node_t*));
+    map->current_bucket = 0x0;
+    return map;
 }
 
 void mm_add_node(memory_map_t *map, unsigned char **data, unsigned int size) {
-    if (!map->head) {
-        map->head = create_node();
-        map->head->data  = data;
-        map->head->start = 0x0;
-        map->head->end   = map->head->start + size;
-        map->head->next  = 0x0; // null 
-        map->tail        = map->head;   
-        return;
+    // create a new memory map node and assign its start
+    // and end location. The start end location will 
+    // indicate the address range this node will occupy 
+    // within the memory map
+    mm_node_t *node = malloc(sizeof(mm_node_t));
+    node->start = map->current_bucket;
+    node->end = node->start + size;
+    // assign references to the node from the map's buckets
+    // according to the address range which the node occupies
+    for (int i = node->start; i < node->end; i += 1) {
+        map->buckets[i] = node;
     }
-
-    mm_node_t node = map->tail;  
-    node->next = create_node();
-    node->next->data  = data;
-    node->next->start = node->end;
-    node->next->end   = node->next->start + size;
-    node->next->next  = 0x0; // null
-    map->tail = node->next;
+    map->current_bucket = node->end;
+    node->data = data;
 }
 
 unsigned char mm_read(memory_map_t *map, unsigned int address) {
-    mm_node_t node = map->head;
-    while (address >= node->end) {
-        node = node->next;
-    }
-    return (*node->data)[address - node->start];
+    mm_node_t node = *(map->buckets[address]);
+    return (*node.data)[address - node.start];
 }
 
 void mm_write(memory_map_t *map, unsigned int address, unsigned char data) {
-    mm_node_t node = map->head;
-    while (address >= node->end) {
-        node = node->next;
-    }
-    (*node->data)[address - node->start] = data;
-}
-
-void mm_print(memory_map_t *map) {
-    unsigned int node_count = 0;
-    mm_node_t node = map->head;
-    while (node) {
-        printf("%i: start: 0x%04x,  end: 0x%04x\n", node_count, node->start, node->end);
-        node = node->next;
-        node_count++;
-    }
+    mm_node_t node = *(map->buckets[address]);
+    (*node.data)[address - node.start] = data;
 }

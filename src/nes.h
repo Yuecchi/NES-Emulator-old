@@ -4,7 +4,7 @@
 #include "6502.h"
 
 typedef struct _nes_t {
-    memory_map_t memory_map;                    //
+    memory_map_t *memory_map;                    //
     unsigned char *ram; //[0x800];              // 2KB of general purpose memory
     unsigned char *ppu_registers; //[0x8];      // registers which the cpu and ppu communicate via
     unsigned char *io_registers; //[0x20];      // apu registers / controller ports   
