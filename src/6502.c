@@ -142,11 +142,29 @@ void sta_abs(cpu_6502 *cpu, operand_t *operand) {
  *
  * A -> M
  * 
- * Stores the value held by the accumulator in the memory
- * location indicated by the operand plus the current value
- * held by the y register.
+ * Stores the value held by the accumulator at a target
+ * address which is fetched from memory. The location of
+ * the lo-byte of the target address is given by the operand,
+ * and the location of the hi-byte of the target addres is 
+ * given by the operand + 1.
  * 
- * aka: M[operand + Y] = A
+ * e.g:
+ * 
+ * | operand | operand + 1 | 
+ * | LO-BYTE |   HI-BYTE   |
+ * 
+ * target_addr = (HI-BYTE * 0x100) + LO-BYTE
+ * 
+ * Upon fetching the address, the final target address
+ * location is then given by adding the value of the Y
+ * register to the fetched address
+ * 
+ * e.g:
+ * 
+ * final_addr = target_addr + Y
+ * 
+ * The value of the accumulator is then stored at the final
+ * address.
  */
 
 void sta_indy(cpu_6502 * cpu, operand_t *operand) {
