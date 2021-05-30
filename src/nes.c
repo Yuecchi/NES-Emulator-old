@@ -129,12 +129,36 @@ void nes_run(nes_t *nes) {
     _6502_execute(nes->cpu); // CMP #$0A
     _6502_execute(nes->cpu); // BCC #$0C
 
+    /*
     _6502_execute(nes->cpu); // JSR $90CC
     _6502_execute(nes->cpu); // LDX #$07
     _6502_execute(nes->cpu); // LDA #$00
     _6502_execute(nes->cpu); // STA $06
-    _6502_execute(nes->cpu); // STX $07
-    _6502_execute(nes->cpu); // CPX #$01
-    _6502_execute(nes->cpu); // BNE #$04
-    _6502_execute(nes->cpu); // STA ($06), Y
+    
+    for (int i = 0; i < 0x7; i += 1) {
+        _6502_execute(nes->cpu); // STX $07    
+        _6502_execute(nes->cpu); // CPX #$01
+        _6502_execute(nes->cpu); // BNE #$04
+        _6502_execute(nes->cpu); // STA ($06), Y
+        _6502_execute(nes->cpu); // DEY
+        _6502_execute(nes->cpu); // CPY #$FF
+        _6502_execute(nes->cpu); // BNE #$F1
+
+        // repeat the above subroutine 0xfd times
+        for (int j = 0; j < 6 * 0xfe; j += 1) {
+            _6502_execute(nes->cpu);
+        }
+
+        _6502_execute(nes->cpu); // DEX
+        _6502_execute(nes->cpu); // BPL #$EC
+    }
+
+    _6502_execute(nes->cpu); // CPY #$60
+    */
+
+    while (2) {
+        _6502_execute(nes->cpu);
+    }
+
+
 }

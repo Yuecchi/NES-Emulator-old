@@ -36,6 +36,7 @@ void set_status_flags(cpu_6502 *cpu, unsigned char reg) {
     }
 }
 
+/*
 void check_overflow(cpu_6502 *cpu, unsigned char reg, unsigned char operand) {
     if (reg + operand > 0xff) {
         SET_FLAG(cpu, CARRY);
@@ -47,12 +48,21 @@ void check_underflow(cpu_6502 *cpu, unsigned char reg, unsigned char operand) {
         SET_FLAG(cpu, CARRY);
     }
 }
+*/
 
 static void push(cpu_6502 *cpu, unsigned char byte) {
     unsigned short stack_location = cpu->stack_pointer + 0x100;
     printf("pushing 0x%02x to stack location 0x%04x\n", byte, stack_location);
     mm_write(cpu->memory_map, stack_location, byte);
     cpu->stack_pointer -= 1;
+}
+
+static unsigned char pop(cpu_6502 *cpu) {
+    cpu->stack_pointer += 1;
+    unsigned short stack_location = cpu->stack_pointer + 0x100;
+    unsigned char byte = mm_read(cpu->memory_map, stack_location);
+    printf("popping element 0x%02x from stack at location 0x%04x\n", byte, stack_location);  
+    return byte;
 }
 
 /* 10 Branch on result plus (relative)
@@ -86,10 +96,31 @@ void bpl_rel(cpu_6502 *cpu, operand_t *operand) {
 
 void jsr_abs(cpu_6502 *cpu, operand_t *operand) {
     unsigned short jump_vector = operand->address;
+    cpu->program_counter += 2;
     push(cpu, (unsigned char)(cpu->program_counter >>8)); // push hi byte
     push(cpu, (unsigned char)(cpu->program_counter)); // push lo byte
     printf("jumping to subroutine at 0x%04x\n", jump_vector);
     cpu->program_counter = jump_vector;
+}
+
+/* 60 Return from suboutine
+ *
+ * Returns from the last subroutine the program entered.
+ * This is achieved by taking the top two elements on the
+ * program stack and using them to set the program counter
+ * such that the first element becomes the lo-byte of the
+ * program counter and the next element becomes the hi-byte
+ * of the program counter
+ * 
+ * e.g:
+ * 
+ * pc = pop() + (pop() * 0x100)
+ */
+
+void rts_impl(cpu_6502 *cpu, operand_t *operand) {
+    unsigned short jump_vector = pop(cpu) + (pop(cpu) * 0x100);
+    printf("returning from subroutine to 0x%04x\n", jump_vector + 1);
+    cpu->program_counter = jump_vector + 1;
 }
 
 /* 78 Set interrupt disable status
@@ -128,6 +159,18 @@ void stx_zpg(cpu_6502 *cpu, operand_t *operand) {
     cpu->program_counter += 2;
 }
 
+/* 88 Decrement index Y by one (implied)
+ *
+ * Y - 1 -> Y
+ * 
+ * Decrements the value held by register Y by one
+ */
+void dey_impl(cpu_6502 *cpu, operand_t *operand) {
+    cpu->reg_y -= 1;
+    set_status_flags(cpu, cpu->reg_y);
+    printf("register Y reduced to 0x%02x\n", cpu->reg_y);
+    cpu->program_counter += 1;
+}
 
 /* 8D Store accumulator in memory (absolute)
  * A -> M
@@ -257,6 +300,31 @@ void lda_absx(cpu_6502 *cpu, operand_t *operand) {
     cpu->program_counter += 3;
 }
 
+/* C0 Compare memory with index Y (immediate)
+ * Y - M
+ *
+ * Compares the contents of the Y register with an immediate 
+ * value, and sets the zero, carry and negative flags as appropriate.
+ * 
+ * CARRY    : Set if Y >= M
+ * ZERO     : Set if Y == M
+ * NEGATIVE : Set if the result is negative 
+ */
+
+void cpy_imm(cpu_6502 *cpu, operand_t *operand) {
+    unsigned char result = cpu->reg_y - operand->byte[0];
+    printf("comparing 0x%02x to 0x%02x\n", cpu->reg_y, operand->byte[0]);
+    set_status_flags(cpu, result);
+    if (!(result & 0x80)) {
+        SET_FLAG(cpu, CARRY);
+        printf("carry status bit set\n");
+    } else {
+        CLEAR_FLAG(cpu, CARRY);
+        printf("carry status bit cleared\n");
+    }
+    cpu->program_counter += 2;
+}
+
 /* C9 Compare memory with accumulator (immediate)
  * A - M
  *
@@ -280,6 +348,19 @@ void cmp_imm(cpu_6502 *cpu, operand_t *operand) {
         printf("carry status bit cleared\n");
     }
     cpu->program_counter += 2;
+}
+
+/* CA Decrement index X by one (implied)
+ *
+ * X - 1 -> X
+ * 
+ * Decrements the value held by register X by one
+ */
+void dex_impl(cpu_6502 *cpu, operand_t *operand) {
+    cpu->reg_x -= 1;
+    printf("register X reduced to 0x%02x\n", cpu->reg_x);
+    set_status_flags(cpu, cpu->reg_x);   
+    cpu->program_counter += 1;
 }
 
 /* D0 Branch on result not zero (relative)
@@ -311,7 +392,7 @@ void cld_impl(cpu_6502 *cpu, operand_t *operand) {
 }
 
 /* E0 Compare memory with index X (immediate)
- * E - M
+ * X - M
  *
  * Compares the contents of the X register with an immediate 
  * value, and sets the zero, carry and negative flags as appropriate.
@@ -342,13 +423,13 @@ operation_t instruction_set[0x100] = {
     /* 30 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     /* 40 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     /* 50 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-    /* 60 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    /* 60 */    rts_impl, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     /* 70 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, sei_impl, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-    /* 80 */    NULL, NULL, NULL, NULL, NULL, sta_zpg, stx_zpg, NULL, NULL, NULL, NULL, NULL, NULL, sta_abs, NULL, NULL,
+    /* 80 */    NULL, NULL, NULL, NULL, NULL, sta_zpg, stx_zpg, NULL, dey_impl, NULL, NULL, NULL, NULL, sta_abs, NULL, NULL,
     /* 90 */    NULL, sta_indy, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, txs_impl, NULL, NULL, NULL, NULL, NULL,
     /* A0 */    ldy_imm, NULL, ldx_imm, NULL, NULL, NULL, NULL, NULL, NULL, lda_imm, NULL, NULL, NULL, lda_abs, NULL, NULL,
     /* B0 */    bcc_rel, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, lda_absx, NULL, NULL,
-    /* C0 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, cmp_imm, NULL, NULL, NULL, NULL, NULL, NULL,
+    /* C0 */    cpy_imm, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, cmp_imm, dex_impl, NULL, NULL, NULL, NULL, NULL,
     /* D0 */    bne_rel, NULL, NULL, NULL, NULL, NULL, NULL, NULL, cld_impl, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     /* E0 */    cpx_imm, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     /* F0 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
