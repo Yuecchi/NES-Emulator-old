@@ -9,7 +9,7 @@ typedef struct _cpu_6502 {
     unsigned char accumulator;
     unsigned char reg_x;
     unsigned char reg_y;
-    unsigned char status_register;
+    unsigned char status_register; // often referred to as 'P' in documentation
     unsigned char stack_pointer;
 } cpu_6502;
 
@@ -28,6 +28,6 @@ void destroy_6502(cpu_6502 *cpu);
 
 void _6502_execute(cpu_6502 *cpu);
 
-void _6502_set_pc(cpu_6502 *cpu, unsigned short address);
+void _6502_reset(cpu_6502 *cpu);
 
 #endif // _6502_H

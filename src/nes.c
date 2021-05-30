@@ -92,7 +92,7 @@ void nes_load_rom(nes_t *nes, const char *nes_src) {
     }
     fclose(rom_src);
 
-    // assign the reset vector for the cpu. This method
+    // Attach the program rom banks to the memory map. This 
     // is only correct for rom sizes between 16 and 32KB.
     // The follow must be done in order to have it work 
     // for a wider variety of cases:
@@ -102,14 +102,16 @@ void nes_load_rom(nes_t *nes, const char *nes_src) {
     //
     nes->prg_rom_lower_bank = &nes->rom[0x10];
     nes->prg_rom_upper_bank = &nes->rom[0x4010];
-    unsigned short reset_vector = (nes->prg_rom_upper_bank[0x3ffd] * 0x100) + nes->prg_rom_upper_bank[0x3ffc];
-    _6502_set_pc(nes->cpu, reset_vector);
+    _6502_reset(nes->cpu);   
 }
 
 void nes_run(nes_t *nes) {
 
-    // force system to always be in vblank
+    // force system to always be in vblank (temporary hack for cpu development)
     mm_write(nes->memory_map, 0x2002, 0x80);
+
+
+    // poll for NMI before executing each instruction?
 
     _6502_execute(nes->cpu); // SEI       (disable interrupt requests)
     _6502_execute(nes->cpu); // CLD       (disable decimal mode)

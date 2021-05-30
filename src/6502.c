@@ -48,7 +48,7 @@ void check_underflow(cpu_6502 *cpu, unsigned char reg, unsigned char operand) {
     }
 }
 
-/* 10 Branch on result plus
+/* 10 Branch on result plus (relative)
  * Branch on N = 0
  *
  * If the negative flag is clear, then increase
@@ -218,6 +218,9 @@ void _6502_execute(cpu_6502 *cpu) {
     instruction_set[opcode](cpu, (operand_t*)&operand);
 }
 
-void _6502_set_pc(cpu_6502 * cpu, unsigned short address) {
-    cpu->program_counter = address;
+void _6502_reset(cpu_6502 *cpu) {
+    // lo byte of reset vector located at: 0xfffc
+    // hi byte of reset vector located at: 0xfffd
+    unsigned short reset_vector = (mm_read(cpu->memory_map, 0xfffd) << 8) + mm_read(cpu->memory_map, 0xfffc);
+    cpu->program_counter = reset_vector;
 }
