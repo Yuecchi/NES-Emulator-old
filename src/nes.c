@@ -112,7 +112,6 @@ void nes_run(nes_t *nes) {
 
 
     // poll for NMI before executing each instruction?
-
     _6502_execute(nes->cpu); // SEI       (disable interrupt requests)
     _6502_execute(nes->cpu); // CLD       (disable decimal mode)
     _6502_execute(nes->cpu); // LDA #$10
@@ -127,4 +126,11 @@ void nes_run(nes_t *nes) {
     _6502_execute(nes->cpu); // LDX #$05
     _6502_execute(nes->cpu); // LDA $07D7, X
     _6502_execute(nes->cpu); // CMP #$0A
+    _6502_execute(nes->cpu); // BCC #$0C
+
+    _6502_execute(nes->cpu); // JSR $90CC
+    _6502_execute(nes->cpu); // LDX #$07
+    _6502_execute(nes->cpu); // LDA #$00
+    _6502_execute(nes->cpu); // STA $06
+    _6502_execute(nes->cpu); // STX $07
 }
