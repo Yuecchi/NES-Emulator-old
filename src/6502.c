@@ -110,8 +110,8 @@ void sei_impl(cpu_6502 *cpu, operand_t *operand) {
  * location in memory indicated by the operand.
  */
 void sta_zpg(cpu_6502 *cpu, operand_t *operand) {
-    mm_write(cpu->memory_map, operand->address, cpu->accumulator);
-    printf("writing 0x%02x to location 0x%04x\n", cpu->accumulator, operand->byte[0]);
+    mm_write(cpu->memory_map, operand->byte[0], cpu->accumulator);
+    printf("memory location 0x%04x set to 0x%02x\n", operand->byte[0], mm_read(cpu->memory_map, operand->byte[0]));
     cpu->program_counter += 2;
 }
 
@@ -123,8 +123,8 @@ void sta_zpg(cpu_6502 *cpu, operand_t *operand) {
  * location in memory indicated by the operand.
  */
 void stx_zpg(cpu_6502 *cpu, operand_t *operand) {
-    mm_write(cpu->memory_map, operand->address, cpu->reg_x);
-    printf("writing 0x%02x to location 0x%04x\n", cpu->reg_x, operand->byte[0]);
+    mm_write(cpu->memory_map, operand->byte[0], cpu->reg_x);
+    printf("memory location 0x%04x set to 0x%02x\n", operand->byte[0], mm_read(cpu->memory_map, operand->byte[0]));
     cpu->program_counter += 2;
 }
 
@@ -134,8 +134,26 @@ void stx_zpg(cpu_6502 *cpu, operand_t *operand) {
  */
 void sta_abs(cpu_6502 *cpu, operand_t *operand) {
     mm_write(cpu->memory_map, operand->address, cpu->accumulator);
-    cpu->program_counter += 3;
     printf("memory location 0x%04x set to 0x%02x\n", operand->address, mm_read(cpu->memory_map, operand->address));
+    cpu->program_counter += 3;
+}
+
+/* 91 Store accumulator in memory (indirect y)
+ *
+ * A -> M
+ * 
+ * Stores the value held by the accumulator in the memory
+ * location indicated by the operand plus the current value
+ * held by the y register.
+ * 
+ * aka: M[operand + Y] = A
+ */
+
+void sta_indy(cpu_6502 * cpu, operand_t *operand) {
+    unsigned short target_address = (mm_read(cpu->memory_map, operand->byte[0] + 1) << 8) + mm_read(cpu->memory_map, operand->byte[0]) + cpu->reg_y;
+    mm_write(cpu->memory_map, target_address, cpu->accumulator);
+    printf("memory location 0x%04x set to 0x%02x\n", target_address, mm_read(cpu->memory_map, target_address));
+    cpu->program_counter += 2;
 }
 
 /* 9A Transfer Index X to Stack Register
@@ -246,6 +264,25 @@ void cmp_imm(cpu_6502 *cpu, operand_t *operand) {
     cpu->program_counter += 2;
 }
 
+/* D0 Branch on result not zero (relative)
+ * Branch on Z = 0
+ *
+ * If the zero flag is clear, then increase
+ * the value of the program counter by the operand
+ */
+
+void bne_rel(cpu_6502 *cpu, operand_t *operand) {
+    unsigned short jump_vector = cpu->program_counter + 2;
+    if (!(FLAG(cpu, ZERO))) {
+        // must cast to char since jumps can be negative
+        jump_vector += (char)operand->byte[0]; 
+        printf("branching to 0x%04x\n", jump_vector);
+    } else {
+        printf("zero flag was not clear, no action taken\n");
+    }
+    cpu->program_counter = jump_vector;
+}
+
 /* D8 Clear decimal mode
  * 0 -> D
  */
@@ -253,6 +290,31 @@ void cld_impl(cpu_6502 *cpu, operand_t *operand) {
     CLEAR_FLAG(cpu, DECIMAL);
     cpu->program_counter += 1;
     printf("decimal status bit cleared\n");
+}
+
+/* E0 Compare memory with index X (immediate)
+ * E - M
+ *
+ * Compares the contents of the X register with an immediate 
+ * value, and sets the zero, carry and negative flags as appropriate.
+ * 
+ * CARRY    : Set if X >= M
+ * ZERO     : Set if X == M
+ * NEGATIVE : Set if the result is negative 
+ */
+
+void cpx_imm(cpu_6502 *cpu, operand_t *operand) {
+    unsigned char result = cpu->reg_x - operand->byte[0];
+    printf("comparing 0x%02x to 0x%02x\n", cpu->reg_x, operand->byte[0]);
+    set_status_flags(cpu, result);
+    if (!(result & 0x80)) {
+        SET_FLAG(cpu, CARRY);
+        printf("carry status bit set\n");
+    } else {
+        CLEAR_FLAG(cpu, CARRY);
+        printf("carry status bit cleared\n");
+    }
+    cpu->program_counter += 2;
 }
 
 operation_t instruction_set[0x100] = {
@@ -265,12 +327,12 @@ operation_t instruction_set[0x100] = {
     /* 60 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     /* 70 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, sei_impl, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     /* 80 */    NULL, NULL, NULL, NULL, NULL, sta_zpg, stx_zpg, NULL, NULL, NULL, NULL, NULL, NULL, sta_abs, NULL, NULL,
-    /* 90 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, txs_impl, NULL, NULL, NULL, NULL, NULL,
+    /* 90 */    NULL, sta_indy, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, txs_impl, NULL, NULL, NULL, NULL, NULL,
     /* A0 */    ldy_imm, NULL, ldx_imm, NULL, NULL, NULL, NULL, NULL, NULL, lda_imm, NULL, NULL, NULL, lda_abs, NULL, NULL,
     /* B0 */    bcc_rel, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, lda_absx, NULL, NULL,
     /* C0 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, cmp_imm, NULL, NULL, NULL, NULL, NULL, NULL,
-    /* D0 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, cld_impl, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-    /* E0 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    /* D0 */    bne_rel, NULL, NULL, NULL, NULL, NULL, NULL, NULL, cld_impl, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    /* E0 */    cpx_imm, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     /* F0 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
 };
 
