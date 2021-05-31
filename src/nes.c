@@ -110,55 +110,10 @@ void nes_run(nes_t *nes) {
     // force system to always be in vblank (temporary hack for cpu development)
     mm_write(nes->memory_map, 0x2002, 0x80);
 
-
     // poll for NMI before executing each instruction?
 
-    _6502_execute(nes->cpu); // SEI       (disable interrupt requests)
-    _6502_execute(nes->cpu); // CLD       (disable decimal mode)
-    _6502_execute(nes->cpu); // LDA #$10
-    _6502_execute(nes->cpu); // STA $2000 (disable NMI)
-    _6502_execute(nes->cpu); // LDX #$FF
-    _6502_execute(nes->cpu); // TSX       (set up the stack)
-    _6502_execute(nes->cpu); // LDA $2002
-    _6502_execute(nes->cpu); // BPL $FB   (first vblank wait)
-    _6502_execute(nes->cpu); // LDA $2002
-    _6502_execute(nes->cpu); // BPL $FB   (second vblank wait)
-    _6502_execute(nes->cpu); // LDY #$FE
-    _6502_execute(nes->cpu); // LDX #$05
-    _6502_execute(nes->cpu); // LDA $07D7, X
-    _6502_execute(nes->cpu); // CMP #$0A
-    _6502_execute(nes->cpu); // BCC #$0C
+    while (_6502_execute(nes->cpu));
 
-    /*
-    _6502_execute(nes->cpu); // JSR $90CC
-    _6502_execute(nes->cpu); // LDX #$07
-    _6502_execute(nes->cpu); // LDA #$00
-    _6502_execute(nes->cpu); // STA $06
-    
-    for (int i = 0; i < 0x7; i += 1) {
-        _6502_execute(nes->cpu); // STX $07    
-        _6502_execute(nes->cpu); // CPX #$01
-        _6502_execute(nes->cpu); // BNE #$04
-        _6502_execute(nes->cpu); // STA ($06), Y
-        _6502_execute(nes->cpu); // DEY
-        _6502_execute(nes->cpu); // CPY #$FF
-        _6502_execute(nes->cpu); // BNE #$F1
-
-        // repeat the above subroutine 0xfd times
-        for (int j = 0; j < 6 * 0xfe; j += 1) {
-            _6502_execute(nes->cpu);
-        }
-
-        _6502_execute(nes->cpu); // DEX
-        _6502_execute(nes->cpu); // BPL #$EC
-    }
-
-    _6502_execute(nes->cpu); // CPY #$60
-    */
-
-    while (2) {
-        _6502_execute(nes->cpu);
-    }
-
+    // nmi and that
 
 }

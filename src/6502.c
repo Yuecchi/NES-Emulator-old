@@ -65,6 +65,18 @@ static unsigned char pop(cpu_6502 *cpu) {
     return byte;
 }
 
+/* 09 OR memory with accumulator (immediate)
+ * 
+ * A OR M -> A
+ */
+
+void ora_imm(cpu_6502 *cpu, operand_t *operand) {
+    cpu->accumulator |= operand->byte[0];
+    printf("accumulator set to 0x%02x\n", cpu->accumulator);
+    set_status_flags(cpu, cpu->accumulator);
+    cpu->program_counter += 2;
+}
+
 /* 10 Branch on result plus (relative)
  * Branch on N = 0
  *
@@ -100,6 +112,79 @@ void jsr_abs(cpu_6502 *cpu, operand_t *operand) {
     push(cpu, (unsigned char)(cpu->program_counter >>8)); // push hi byte
     push(cpu, (unsigned char)(cpu->program_counter)); // push lo byte
     printf("jumping to subroutine at 0x%04x\n", jump_vector);
+    cpu->program_counter = jump_vector;
+}
+
+/* 29 AND memory with accumulator (immediate)
+ * 
+ * A AND M -> A
+ */
+
+void and_imm(cpu_6502 *cpu, operand_t *operand) {
+    cpu->accumulator &= operand->byte[0];
+    printf("accumulator set to 0x%02x\n", cpu->accumulator);
+    set_status_flags(cpu, cpu->accumulator);
+    cpu->program_counter += 2;
+}
+
+/* 2C Tests bits in memory with accumulator (absolute)
+ * 
+ * Fetches a value from the location in memory given by
+ * the operand. The negative flag and overflow are made
+ * equal to bits 7 and 6 of the fetched value respectively.
+ * The zero status flag is set if the result of ANDing the 
+ * fetched value with the value held by the accumulator results
+ * in zero.
+ * 
+ * e.g:
+ * 
+ * Z = !(A & M)
+ * N = M7
+ * V = M6
+ */
+
+void bits_abs(cpu_6502 *cpu, operand_t *operand) {
+    // fetch value
+    unsigned char value = mm_read(cpu->memory_map, operand->address); 
+    // set the negative status flag equal to the
+    // 7th bit of the fetched value
+    if (value & 0x80) {
+        SET_FLAG(cpu, NEGATIVE);
+        printf("negative status bit set\n");
+    } else {
+        CLEAR_FLAG(cpu, NEGATIVE);
+        printf("negative status bit cleared\n");
+    }
+    // set the overflow status flag equal to the
+    // 6th bit of the fetched value
+    if (value & 0x40) {
+        SET_FLAG(cpu, OVERFLOW);
+        printf("overflow status bit set\n");
+    } else {
+        CLEAR_FLAG(cpu, OVERFLOW);
+        printf("overflow status bit cleared\n");
+    }
+    // set the zero status if the result of the fetched
+    // value ANDed with the value held by the accumulator
+    // is zero
+    if (!(cpu->accumulator & value)) {
+        SET_FLAG(cpu, ZERO);
+        printf("zero status bit set\n");
+    } else {
+        CLEAR_FLAG(cpu, ZERO);
+        printf("zero status bit cleared\n");
+    }
+    cpu->program_counter += 3;
+}
+
+/* 4C Jump to new location
+ *
+ * PC -> operand
+ */
+
+void jmp_abs(cpu_6502 *cpu, operand_t *operand) {
+    unsigned short jump_vector = operand->address;
+    printf("jumping to 0x%04x\n", jump_vector);
     cpu->program_counter = jump_vector;
 }
 
@@ -167,8 +252,20 @@ void stx_zpg(cpu_6502 *cpu, operand_t *operand) {
  */
 void dey_impl(cpu_6502 *cpu, operand_t *operand) {
     cpu->reg_y -= 1;
-    set_status_flags(cpu, cpu->reg_y);
     printf("register Y reduced to 0x%02x\n", cpu->reg_y);
+    set_status_flags(cpu, cpu->reg_y); 
+    cpu->program_counter += 1;
+}
+
+/* 8A transfer index X to accumulator
+ *
+ * X -> A
+ */
+
+void txa_impl(cpu_6502 *cpu, operand_t *operand) {
+    cpu->accumulator = cpu->reg_x;
+    printf("accumulator set to 0x%02x\n", cpu->accumulator);
+    set_status_flags(cpu, cpu->reg_y);
     cpu->program_counter += 1;
 }
 
@@ -215,6 +312,18 @@ void sta_indy(cpu_6502 * cpu, operand_t *operand) {
     mm_write(cpu->memory_map, target_address, cpu->accumulator);
     printf("memory location 0x%04x set to 0x%02x\n", target_address, mm_read(cpu->memory_map, target_address));
     cpu->program_counter += 2;
+}
+
+/* 99 Store accumulator in memory (absolute Y)
+ *
+ * A -> M
+ */
+
+void sta_absy(cpu_6502 *cpu, operand_t *operand) {
+    unsigned short target_address = operand->address + cpu->reg_y;
+    mm_write(cpu->memory_map, target_address, cpu->accumulator);
+    printf("memory location 0x%04x set to 0x%02x\n", target_address, mm_read(cpu->memory_map, target_address));
+    cpu->program_counter += 3;
 }
 
 /* 9A Transfer Index X to Stack Register
@@ -325,6 +434,18 @@ void cpy_imm(cpu_6502 *cpu, operand_t *operand) {
     cpu->program_counter += 2;
 }
 
+/* C8 Increment index Y by one
+ *
+ * Y + 1 -> Y
+ */
+
+void iny_impl(cpu_6502 *cpu, operand_t *operand) {
+    cpu->reg_y += 1;
+    set_status_flags(cpu, cpu->reg_y);
+    printf("register Y increased to 0x%02x\n", cpu->reg_y);
+    cpu->program_counter += 1;
+}
+
 /* C9 Compare memory with accumulator (immediate)
  * A - M
  *
@@ -416,22 +537,35 @@ void cpx_imm(cpu_6502 *cpu, operand_t *operand) {
     cpu->program_counter += 2;
 }
 
+/* EE Increment memory by one
+ *
+ * M + 1 -> M
+ */
+
+void inc_abs(cpu_6502 *cpu, operand_t *operand) {
+    unsigned char value = mm_read(cpu->memory_map, operand->address) + 1;
+    printf("increasing value at location 0x%04x to 0x%02x ", value, operand->address);
+    mm_write(cpu->memory_map, operand->address, value);
+    set_status_flags(cpu, value);
+    cpu->program_counter += 3;
+}
+
 operation_t instruction_set[0x100] = {
-    /* 00 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    /* 00 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ora_imm, NULL, NULL, NULL, NULL, NULL, NULL,
     /* 10 */    bpl_rel, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-    /* 20 */    jsr_abs, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    /* 20 */    jsr_abs, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, and_imm, NULL, NULL, bits_abs, NULL, NULL, NULL,
     /* 30 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-    /* 40 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    /* 40 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, jmp_abs, NULL, NULL, NULL,
     /* 50 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     /* 60 */    rts_impl, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     /* 70 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, sei_impl, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-    /* 80 */    NULL, NULL, NULL, NULL, NULL, sta_zpg, stx_zpg, NULL, dey_impl, NULL, NULL, NULL, NULL, sta_abs, NULL, NULL,
-    /* 90 */    NULL, sta_indy, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, txs_impl, NULL, NULL, NULL, NULL, NULL,
+    /* 80 */    NULL, NULL, NULL, NULL, NULL, sta_zpg, stx_zpg, NULL, dey_impl, NULL, txa_impl, NULL, NULL, sta_abs, NULL, NULL,
+    /* 90 */    NULL, sta_indy, NULL, NULL, NULL, NULL, NULL, NULL, NULL, sta_absy, txs_impl, NULL, NULL, NULL, NULL, NULL,
     /* A0 */    ldy_imm, NULL, ldx_imm, NULL, NULL, NULL, NULL, NULL, NULL, lda_imm, NULL, NULL, NULL, lda_abs, NULL, NULL,
     /* B0 */    bcc_rel, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, lda_absx, NULL, NULL,
-    /* C0 */    cpy_imm, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, cmp_imm, dex_impl, NULL, NULL, NULL, NULL, NULL,
+    /* C0 */    cpy_imm, NULL, NULL, NULL, NULL, NULL, NULL, NULL, iny_impl, cmp_imm, dex_impl, NULL, NULL, NULL, NULL, NULL,
     /* D0 */    bne_rel, NULL, NULL, NULL, NULL, NULL, NULL, NULL, cld_impl, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-    /* E0 */    cpx_imm, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    /* E0 */    cpx_imm, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, inc_abs, NULL,
     /* F0 */    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
 };
 
@@ -446,13 +580,15 @@ void destroy_6502(cpu_6502 *cpu) {
     free(cpu);
 }
 
-void _6502_execute(cpu_6502 *cpu) {   
+int _6502_execute(cpu_6502 *cpu) {   
     unsigned char opcode, operand[2];
     opcode     = mm_read(cpu->memory_map, cpu->program_counter);
     operand[0] = mm_read(cpu->memory_map, cpu->program_counter + 1);
     operand[1] = mm_read(cpu->memory_map, cpu->program_counter + 2);
     printf("0x%02x ----------------------------------------\n", opcode);
     instruction_set[opcode](cpu, (operand_t*)&operand);
+
+    return cpu->program_counter != 0x8057;
 }
 
 void _6502_reset(cpu_6502 *cpu) {

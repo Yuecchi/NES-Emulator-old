@@ -26,7 +26,7 @@ cpu_6502 *create_6502(memory_map_t *memory_map);
 
 void destroy_6502(cpu_6502 *cpu);
 
-void _6502_execute(cpu_6502 *cpu);
+int _6502_execute(cpu_6502 *cpu);
 
 void _6502_reset(cpu_6502 *cpu);
 
