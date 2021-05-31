@@ -4,6 +4,10 @@
 
 #include "nes.h"
 
+#define NMI_ENABLED (nes->ppu_registers[0] & 0x80)
+#define VBLANK_SIGNALLED (nes->ppu_registers[2] & 0x80)
+
+
 nes_t *create_nes() {
     nes_t *nes = calloc(1, sizeof(nes_t));
     nes->memory_map = create_memory_map(0x10000);
@@ -112,8 +116,38 @@ void nes_run(nes_t *nes) {
 
     // poll for NMI before executing each instruction?
 
-    while (_6502_execute(nes->cpu));
+    while (1) {
 
-    // nmi and that
+        if (NMI_ENABLED && VBLANK_SIGNALLED) {
+            // _6502_nmi(nes->cpu);
+            // nes->ppu_registers[2] &= 0x7f;
+        }
+
+        // todo: instructions need to return number of cycles
+        //       so the number of dots can be calculed
+        _6502_execute(nes->cpu);
+
+        /*
+        // signal that vblank has started at the start of
+        // every 242nd scanline
+        if (!in_vblank && dots >= (241 * 341) + 2) {
+            nes->ppu_registers[2] |= 0x80;
+            in_vblank = 1;
+        }
+
+        // signal that vblank has ended at the start of
+        // every 262nd scanline
+        if (dots >= (261 * 341) + 2) {
+            nes->ppu_registers[2] &= 0x7f;
+            in_vblank = 0;
+        }
+
+        // reset dots back to 0 every 262 scanlines
+        if (dots >= (262 * 341)) {
+            dots = dots % (262 * 341);
+        }
+        */
+    }
+
 
 }
