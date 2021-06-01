@@ -65,35 +65,72 @@ static unsigned char pop(cpu_6502 *cpu) {
     return byte;
 }
 
+/* function for determining if a page change has occurred
+ *
+ * return: 1 if a page change has occured, otherwise 0
+ */
+static unsigned int page_changed(unsigned int current_address, unsigned int target_address) {
+    unsigned int current_page = current_address / 0x100;
+    unsigned int target_page  = target_address  / 0x100;
+    return current_page != target_page;
+}
+
 /* 09 OR memory with accumulator (immediate)
  * 
  * A OR M -> A
+ * 
+ * Sets the value of the accumulator equal to the result
+ * of the value currently held by the accumulator ORed 
+ * with the given operand.
+ * 
+ * Bytes:  2
+ * Cycles: 2
  */
 
-void ora_imm(cpu_6502 *cpu, operand_t *operand) {
+unsigned int ora_imm(cpu_6502 *cpu, operand_t *operand) {
     cpu->accumulator |= operand->byte[0];
     printf("accumulator set to 0x%02x\n", cpu->accumulator);
     set_status_flags(cpu, cpu->accumulator);
     cpu->program_counter += 2;
+    return 2;
 }
 
 /* 10 Branch on result plus (relative)
+ *
  * Branch on N = 0
  *
- * If the negative flag is clear, then increase
- * the value of the program counter by the operand
+ * If the negative flag is clear, then change
+ * the value of the program counter by the value
+ * of the operand
+ * 
+ * Bytes:  2
+ * Cycles: 2 if no branching operation occurs
+ *         3 if the branching operation occurs
+ *         4 if the branching operation occurs 
+ *           and the destination is on a new page
+ * 
+ * note: A page boundry crossing occurs when the
+ *       branch destination is on a different page 
+ *       than the instruction AFTER the branch 
+ *       instruction
  */
 
-void bpl_rel(cpu_6502 *cpu, operand_t *operand) {
+unsigned int bpl_rel(cpu_6502 *cpu, operand_t *operand) {
     unsigned short jump_vector = cpu->program_counter + 2;
+    unsigned int cycles = 2;
     if (!(FLAG(cpu, NEGATIVE))) {
         // must cast to char since jumps can be negative
-        jump_vector += (char)operand->byte[0]; 
+        jump_vector += (char)operand->byte[0];
+        // add an extra cycle since the branch succeeded
+        // and add an additional cycle if the program 
+        // counter is moved to a new page
+        cycles += (1 + page_changed(cpu->program_counter + 2, jump_vector));
         printf("branching to 0x%04x\n", jump_vector);
     } else {
         printf("negative flag was not clear, no action taken\n");
     }
     cpu->program_counter = jump_vector;
+    return cycles;
 }
 
 /*
@@ -104,27 +141,39 @@ void bpl_rel(cpu_6502 *cpu, operand_t *operand) {
  * modified, the current value held by the program
  * counter is pushed onto the program stack, hi byte
  * first.
+ * 
+ * Bytes:  3
+ * Cycles: 6
  */
 
-void jsr_abs(cpu_6502 *cpu, operand_t *operand) {
+unsigned int jsr_abs(cpu_6502 *cpu, operand_t *operand) {
     unsigned short jump_vector = operand->address;
     cpu->program_counter += 2;
-    push(cpu, (unsigned char)(cpu->program_counter >>8)); // push hi byte
+    push(cpu, (unsigned char)(cpu->program_counter >> 8)); // push hi byte
     push(cpu, (unsigned char)(cpu->program_counter)); // push lo byte
     printf("jumping to subroutine at 0x%04x\n", jump_vector);
     cpu->program_counter = jump_vector;
+    return 6;
 }
 
 /* 29 AND memory with accumulator (immediate)
  * 
  * A AND M -> A
+ * 
+ * Sets the value of the accumulator equal to the result
+ * of the value currently held by the accumulator ANDed 
+ * with the given operand.
+ * 
+ * Bytes:  2
+ * Cycles: 2
  */
 
-void and_imm(cpu_6502 *cpu, operand_t *operand) {
+unsigned int and_imm(cpu_6502 *cpu, operand_t *operand) {
     cpu->accumulator &= operand->byte[0];
     printf("accumulator set to 0x%02x\n", cpu->accumulator);
     set_status_flags(cpu, cpu->accumulator);
     cpu->program_counter += 2;
+    return 2;
 }
 
 /* 2C Tests bits in memory with accumulator (absolute)
@@ -141,9 +190,12 @@ void and_imm(cpu_6502 *cpu, operand_t *operand) {
  * Z = !(A & M)
  * N = M7
  * V = M6
+ * 
+ * Bytes:  3
+ * Cycles: 4
  */
 
-void bits_abs(cpu_6502 *cpu, operand_t *operand) {
+unsigned int bits_abs(cpu_6502 *cpu, operand_t *operand) {
     // fetch value
     unsigned char value = mm_read(cpu->memory_map, operand->address); 
     // set the negative status flag equal to the
@@ -175,17 +227,22 @@ void bits_abs(cpu_6502 *cpu, operand_t *operand) {
         printf("zero status bit cleared\n");
     }
     cpu->program_counter += 3;
+    return 4;
 }
 
-/* 4C Jump to new location
+/* 4C Jump to new location (absolute)
  *
- * PC -> operand
+ * operand -> PC
+ * 
+ * Bytes:  3
+ * Cycles: 3
  */
 
-void jmp_abs(cpu_6502 *cpu, operand_t *operand) {
+unsigned int jmp_abs(cpu_6502 *cpu, operand_t *operand) {
     unsigned short jump_vector = operand->address;
     printf("jumping to 0x%04x\n", jump_vector);
     cpu->program_counter = jump_vector;
+    return 3;
 }
 
 /* 60 Return from suboutine
@@ -200,21 +257,31 @@ void jmp_abs(cpu_6502 *cpu, operand_t *operand) {
  * e.g:
  * 
  * pc = pop() + (pop() * 0x100)
+ * 
+ * Bytes:  1
+ * Cycles: 6
  */
 
-void rts_impl(cpu_6502 *cpu, operand_t *operand) {
+unsigned int rts_impl(cpu_6502 *cpu, operand_t *operand) {
     unsigned short jump_vector = pop(cpu) + (pop(cpu) * 0x100);
     printf("returning from subroutine to 0x%04x\n", jump_vector + 1);
     cpu->program_counter = jump_vector + 1;
+    return 6;
 }
 
 /* 78 Set interrupt disable status
+ * 
  * 1 -> I
+ * 
+ * Bytes:  1
+ * Cycles: 2
  */
-void sei_impl(cpu_6502 *cpu, operand_t *operand) {
+
+unsigned int sei_impl(cpu_6502 *cpu, operand_t *operand) {
     SET_FLAG(cpu, INTERRUPT);
     cpu->program_counter += 1;
     printf("interrupt status bit set\n");
+    return 2;
 }
 
 
@@ -224,11 +291,16 @@ void sei_impl(cpu_6502 *cpu, operand_t *operand) {
  * 
  * Stores the value held by the accumlator at the 
  * location in memory indicated by the operand.
+ * 
+ * Bytes:  2
+ * Cycles: 3
  */
-void sta_zpg(cpu_6502 *cpu, operand_t *operand) {
+
+unsigned int sta_zpg(cpu_6502 *cpu, operand_t *operand) {
     mm_write(cpu->memory_map, operand->byte[0], cpu->accumulator);
     printf("memory location 0x%04x set to 0x%02x\n", operand->byte[0], mm_read(cpu->memory_map, operand->byte[0]));
     cpu->program_counter += 2;
+    return 3;
 }
 
 /* 86 Store index X in memory (zeropage)
@@ -237,11 +309,16 @@ void sta_zpg(cpu_6502 *cpu, operand_t *operand) {
  * 
  * Stores the value held by the X register at the 
  * location in memory indicated by the operand.
+ * 
+ * Bytes:  2
+ * Cycles: 3
  */
-void stx_zpg(cpu_6502 *cpu, operand_t *operand) {
+
+unsigned int stx_zpg(cpu_6502 *cpu, operand_t *operand) {
     mm_write(cpu->memory_map, operand->byte[0], cpu->reg_x);
     printf("memory location 0x%04x set to 0x%02x\n", operand->byte[0], mm_read(cpu->memory_map, operand->byte[0]));
     cpu->program_counter += 2;
+    return 3;
 }
 
 /* 88 Decrement index Y by one (implied)
@@ -249,33 +326,48 @@ void stx_zpg(cpu_6502 *cpu, operand_t *operand) {
  * Y - 1 -> Y
  * 
  * Decrements the value held by register Y by one
+ * 
+ * Bytes:  1
+ * Cycles: 2
  */
-void dey_impl(cpu_6502 *cpu, operand_t *operand) {
+
+unsigned int dey_impl(cpu_6502 *cpu, operand_t *operand) {
     cpu->reg_y -= 1;
     printf("register Y reduced to 0x%02x\n", cpu->reg_y);
     set_status_flags(cpu, cpu->reg_y); 
     cpu->program_counter += 1;
+    return 2;
 }
 
-/* 8A transfer index X to accumulator
+/* 8A transfer index X to accumulator (implied)
  *
  * X -> A
+ * 
+ * Bytes:  1
+ * Cycles: 2
  */
 
-void txa_impl(cpu_6502 *cpu, operand_t *operand) {
+unsigned int txa_impl(cpu_6502 *cpu, operand_t *operand) {
     cpu->accumulator = cpu->reg_x;
     printf("accumulator set to 0x%02x\n", cpu->accumulator);
     set_status_flags(cpu, cpu->reg_y);
     cpu->program_counter += 1;
+    return 2;
 }
 
 /* 8D Store accumulator in memory (absolute)
+ *
  * A -> M
+ * 
+ * Bytes:  3
+ * Cycles: 4
  */
-void sta_abs(cpu_6502 *cpu, operand_t *operand) {
+
+unsigned int sta_abs(cpu_6502 *cpu, operand_t *operand) {
     mm_write(cpu->memory_map, operand->address, cpu->accumulator);
     printf("memory location 0x%04x set to 0x%02x\n", operand->address, mm_read(cpu->memory_map, operand->address));
     cpu->program_counter += 3;
+    return 4;
 }
 
 /* 91 Store accumulator in memory (indirect y)
@@ -305,104 +397,164 @@ void sta_abs(cpu_6502 *cpu, operand_t *operand) {
  * 
  * The value of the accumulator is then stored at the final
  * address.
+ * 
+ * Bytes:  2
+ * Cycles: 6
  */
 
-void sta_indy(cpu_6502 * cpu, operand_t *operand) {
+unsigned int sta_indy(cpu_6502 * cpu, operand_t *operand) {
     unsigned short target_address = (mm_read(cpu->memory_map, operand->byte[0] + 1) << 8) + mm_read(cpu->memory_map, operand->byte[0]) + cpu->reg_y;
     mm_write(cpu->memory_map, target_address, cpu->accumulator);
     printf("memory location 0x%04x set to 0x%02x\n", target_address, mm_read(cpu->memory_map, target_address));
     cpu->program_counter += 2;
+    return 6;
 }
 
 /* 99 Store accumulator in memory (absolute Y)
  *
  * A -> M
+ * 
+ * Bytes:  3
+ * Cycles: 5
  */
 
-void sta_absy(cpu_6502 *cpu, operand_t *operand) {
+unsigned int sta_absy(cpu_6502 *cpu, operand_t *operand) {
     unsigned short target_address = operand->address + cpu->reg_y;
     mm_write(cpu->memory_map, target_address, cpu->accumulator);
     printf("memory location 0x%04x set to 0x%02x\n", target_address, mm_read(cpu->memory_map, target_address));
     cpu->program_counter += 3;
+    return 5;
 }
 
-/* 9A Transfer Index X to Stack Register
+/* 9A Transfer Index X to Stack Register (implied)
  *
  * X -> SP
  * 
  * Sets the value of the stack pointer to the
  * value held in register X
+ * 
+ * Bytes:  1
+ * Cycles: 2
  */
-void txs_impl(cpu_6502 *cpu, operand_t *operand) {
+
+unsigned int txs_impl(cpu_6502 *cpu, operand_t *operand) {
     cpu->stack_pointer = cpu->reg_x;
     printf("stack location set to 0x%02x\n", cpu->stack_pointer);
     cpu->program_counter += 1;
+    return 2;
 }
 
 /* A0 Load index Y with memory (immediate)
+ *
  * M -> Y
+ * 
+ * Bytes:  2
+ * Cycles: 2
  */
-void ldy_imm(cpu_6502 *cpu, operand_t *operand) {
+
+unsigned int ldy_imm(cpu_6502 *cpu, operand_t *operand) {
     cpu->reg_y = operand->byte[0];
     printf("register Y set to 0x%02x\n", cpu->reg_y);
     set_status_flags(cpu, cpu->reg_y);
     cpu->program_counter += 2;
+    return 2;
 }
 
 /* A2 Load index X with memory (immediate)
+ *
  * M -> X
+ * 
+ * Bytes:  2
+ * Cycles: 2
  */
-void ldx_imm(cpu_6502 *cpu, operand_t *operand) {
+
+unsigned int ldx_imm(cpu_6502 *cpu, operand_t *operand) {
     cpu->reg_x = operand->byte[0];
     printf("register X set to 0x%02x\n", cpu->reg_x);
     set_status_flags(cpu, cpu->reg_x);
     cpu->program_counter += 2;
+    return 2;
 }
 
 /* A9 Load accumulator with memory (immediate)
+ *
  * M -> A
+ * 
+ * Bytes:  2
+ * Cycles: 2
  */
-void lda_imm(cpu_6502 *cpu, operand_t *operand) {
+
+unsigned int lda_imm(cpu_6502 *cpu, operand_t *operand) {
     cpu->accumulator = operand->byte[0];
     printf("accumulator set to 0x%02x\n", cpu->accumulator);
     set_status_flags(cpu, cpu->accumulator);
-    cpu->program_counter += 2;  
+    cpu->program_counter += 2;
+    return 2;
 }
 
 /* AD Load accumulator with memory (absolute)
+ *
  * M -> A
+ * 
+ * Fetches a value from the location in memory given
+ * by the operand and stores the fetched value in the
+ * accumulator
+ * 
+ * Bytes:  3
+ * Cycles: 4
  */
-void lda_abs(cpu_6502 *cpu, operand_t *operand) {
+
+unsigned int lda_abs(cpu_6502 *cpu, operand_t *operand) {
     cpu->accumulator = mm_read(cpu->memory_map, operand->address);
     printf("accumulator set to 0x%02x\n", cpu->accumulator);
     set_status_flags(cpu, cpu->accumulator);
     cpu->program_counter += 3;
+    return 4;
 }
 
 /* B0 Branch on carry clear (relative)
- * Branch on C = 0
  *
- * If the carry flag is clear, then increase
- * the value of the program counter by the operand
+ * Branch on C = 1
+ *
+ * If the carry flag is set, then change
+ * the value of the program counter by the 
+ * value of the operand
+ * 
+ * Bytes:  2
+ * Cycles: 2 if no branching operation occurs
+ *         3 if the branching operation occurs
+ *         4 if the branching operation occurs 
+ *           and the destination is on a new page
+ * 
+ * note: A page boundry crossing occurs when the
+ *       branch destination is on a different page 
+ *       than the instruction AFTER the branch 
+ *       instruction
  */
 
-void bcc_rel(cpu_6502 *cpu, operand_t *operand) {
+unsigned int bcs_rel(cpu_6502 *cpu, operand_t *operand) {
     unsigned short jump_vector = cpu->program_counter + 2;
-    if (!(FLAG(cpu, CARRY))) {
+    unsigned int cycles = 2;
+    if ((FLAG(cpu, CARRY))) {
         // must cast to char since jumps can be negative
         jump_vector += (char)operand->byte[0]; 
+        // add an extra cycle since the branch succeeded
+        // and add an additional cycle if the program 
+        // counter is moved to a new page
+        cycles += (1 + page_changed(cpu->program_counter + 2, jump_vector));
         printf("branching to 0x%04x\n", jump_vector);
     } else {
-        printf("carry flag was not clear, no action taken\n");
+        printf("carry flag was clear, no action taken\n");
     }
     cpu->program_counter = jump_vector;
+    return cycles;
 }
 
 /* BD Load accumulator with memory (absolute X)
  * M -> A
  */
 
-void lda_absx(cpu_6502 *cpu, operand_t *operand) {
+unsigned int lda_absx(cpu_6502 *cpu, operand_t *operand) {
     cpu->accumulator = mm_read(cpu->memory_map, operand->address + cpu->reg_x);
     printf("accumulator set to 0x%02x\n", cpu->accumulator);
     set_status_flags(cpu, cpu->accumulator);
@@ -415,16 +567,16 @@ void lda_absx(cpu_6502 *cpu, operand_t *operand) {
  * Compares the contents of the Y register with an immediate 
  * value, and sets the zero, carry and negative flags as appropriate.
  * 
- * CARRY    : Set if Y >= M
+ * CARRY    : Set if Y >= M (unsigned comparison)
  * ZERO     : Set if Y == M
  * NEGATIVE : Set if the result is negative 
  */
 
-void cpy_imm(cpu_6502 *cpu, operand_t *operand) {
+unsigned int cpy_imm(cpu_6502 *cpu, operand_t *operand) {
     unsigned char result = cpu->reg_y - operand->byte[0];
     printf("comparing 0x%02x to 0x%02x\n", cpu->reg_y, operand->byte[0]);
     set_status_flags(cpu, result);
-    if (!(result & 0x80)) {
+    if (cpu->reg_y >= operand->byte[0]) {
         SET_FLAG(cpu, CARRY);
         printf("carry status bit set\n");
     } else {
@@ -439,7 +591,7 @@ void cpy_imm(cpu_6502 *cpu, operand_t *operand) {
  * Y + 1 -> Y
  */
 
-void iny_impl(cpu_6502 *cpu, operand_t *operand) {
+unsigned int iny_impl(cpu_6502 *cpu, operand_t *operand) {
     cpu->reg_y += 1;
     set_status_flags(cpu, cpu->reg_y);
     printf("register Y increased to 0x%02x\n", cpu->reg_y);
@@ -452,16 +604,16 @@ void iny_impl(cpu_6502 *cpu, operand_t *operand) {
  * Compares the contents of the accumulator with an immediate 
  * value, and sets the zero, carry and negative flags as appropriate.
  * 
- * CARRY    : Set if A >= M
+ * CARRY    : Set if A >= M (unsigned comparison)
  * ZERO     : Set if A == M
  * NEGATIVE : Set if the result is negative 
  */
 
-void cmp_imm(cpu_6502 *cpu, operand_t *operand) {
+unsigned int cmp_imm(cpu_6502 *cpu, operand_t *operand) {
     unsigned char result = cpu->accumulator - operand->byte[0];
     printf("comparing 0x%02x to 0x%02x\n", cpu->accumulator, operand->byte[0]);
     set_status_flags(cpu, result);
-    if (!(result & 0x80)) {
+    if (cpu->accumulator >= operand->byte[0]) {
         SET_FLAG(cpu, CARRY);
         printf("carry status bit set\n");
     } else {
@@ -477,7 +629,7 @@ void cmp_imm(cpu_6502 *cpu, operand_t *operand) {
  * 
  * Decrements the value held by register X by one
  */
-void dex_impl(cpu_6502 *cpu, operand_t *operand) {
+unsigned int dex_impl(cpu_6502 *cpu, operand_t *operand) {
     cpu->reg_x -= 1;
     printf("register X reduced to 0x%02x\n", cpu->reg_x);
     set_status_flags(cpu, cpu->reg_x);   
@@ -491,7 +643,7 @@ void dex_impl(cpu_6502 *cpu, operand_t *operand) {
  * the value of the program counter by the operand
  */
 
-void bne_rel(cpu_6502 *cpu, operand_t *operand) {
+unsigned int bne_rel(cpu_6502 *cpu, operand_t *operand) {
     unsigned short jump_vector = cpu->program_counter + 2;
     if (!(FLAG(cpu, ZERO))) {
         // must cast to char since jumps can be negative
@@ -506,7 +658,7 @@ void bne_rel(cpu_6502 *cpu, operand_t *operand) {
 /* D8 Clear decimal mode
  * 0 -> D
  */
-void cld_impl(cpu_6502 *cpu, operand_t *operand) {
+unsigned int cld_impl(cpu_6502 *cpu, operand_t *operand) {
     CLEAR_FLAG(cpu, DECIMAL);
     cpu->program_counter += 1;
     printf("decimal status bit cleared\n");
@@ -518,16 +670,16 @@ void cld_impl(cpu_6502 *cpu, operand_t *operand) {
  * Compares the contents of the X register with an immediate 
  * value, and sets the zero, carry and negative flags as appropriate.
  * 
- * CARRY    : Set if X >= M
+ * CARRY    : Set if X >= M (unsigned comparison)
  * ZERO     : Set if X == M
  * NEGATIVE : Set if the result is negative 
  */
 
-void cpx_imm(cpu_6502 *cpu, operand_t *operand) {
+unsigned int cpx_imm(cpu_6502 *cpu, operand_t *operand) {
     unsigned char result = cpu->reg_x - operand->byte[0];
     printf("comparing 0x%02x to 0x%02x\n", cpu->reg_x, operand->byte[0]);
     set_status_flags(cpu, result);
-    if (!(result & 0x80)) {
+    if (cpu->reg_x >= operand->byte[0]) {
         SET_FLAG(cpu, CARRY);
         printf("carry status bit set\n");
     } else {
@@ -542,7 +694,7 @@ void cpx_imm(cpu_6502 *cpu, operand_t *operand) {
  * M + 1 -> M
  */
 
-void inc_abs(cpu_6502 *cpu, operand_t *operand) {
+unsigned int inc_abs(cpu_6502 *cpu, operand_t *operand) {
     unsigned char value = mm_read(cpu->memory_map, operand->address) + 1;
     printf("increasing value at location 0x%04x to 0x%02x ", value, operand->address);
     mm_write(cpu->memory_map, operand->address, value);
@@ -562,7 +714,7 @@ operation_t instruction_set[0x100] = {
     /* 80 */    NULL, NULL, NULL, NULL, NULL, sta_zpg, stx_zpg, NULL, dey_impl, NULL, txa_impl, NULL, NULL, sta_abs, NULL, NULL,
     /* 90 */    NULL, sta_indy, NULL, NULL, NULL, NULL, NULL, NULL, NULL, sta_absy, txs_impl, NULL, NULL, NULL, NULL, NULL,
     /* A0 */    ldy_imm, NULL, ldx_imm, NULL, NULL, NULL, NULL, NULL, NULL, lda_imm, NULL, NULL, NULL, lda_abs, NULL, NULL,
-    /* B0 */    bcc_rel, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, lda_absx, NULL, NULL,
+    /* B0 */    bcs_rel, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, lda_absx, NULL, NULL,
     /* C0 */    cpy_imm, NULL, NULL, NULL, NULL, NULL, NULL, NULL, iny_impl, cmp_imm, dex_impl, NULL, NULL, NULL, NULL, NULL,
     /* D0 */    bne_rel, NULL, NULL, NULL, NULL, NULL, NULL, NULL, cld_impl, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     /* E0 */    cpx_imm, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, inc_abs, NULL,
@@ -581,13 +733,13 @@ void destroy_6502(cpu_6502 *cpu) {
 }
 
 int _6502_execute(cpu_6502 *cpu) {   
+    printf("0x%04x\n", cpu->program_counter);
     unsigned char opcode, operand[2];
     opcode     = mm_read(cpu->memory_map, cpu->program_counter);
     operand[0] = mm_read(cpu->memory_map, cpu->program_counter + 1);
     operand[1] = mm_read(cpu->memory_map, cpu->program_counter + 2);
     printf("0x%02x ----------------------------------------\n", opcode);
     instruction_set[opcode](cpu, (operand_t*)&operand);
-
     return cpu->program_counter != 0x8057;
 }
 

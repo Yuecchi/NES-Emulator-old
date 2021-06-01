@@ -20,7 +20,7 @@ typedef union _operand_t {
     unsigned char byte[2];
 } operand_t;
 
-typedef void (*operation_t)(cpu_6502*, operand_t*);
+typedef unsigned int (*operation_t)(cpu_6502*, operand_t*);
 
 cpu_6502 *create_6502(memory_map_t *memory_map);
 
