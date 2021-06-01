@@ -30,4 +30,6 @@ int _6502_execute(cpu_6502 *cpu);
 
 void _6502_reset(cpu_6502 *cpu);
 
+int _6502_nmi(cpu_6502 *cpu);
+
 #endif // _6502_H

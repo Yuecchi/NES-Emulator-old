@@ -69,7 +69,7 @@ static unsigned char pop(cpu_6502 *cpu) {
  *
  * return: 1 if a page change has occured, otherwise 0
  */
-static unsigned int page_changed(unsigned int current_address, unsigned int target_address) {
+static unsigned int page_crossed(unsigned int current_address, unsigned int target_address) {
     unsigned int current_page = current_address / 0x100;
     unsigned int target_page  = target_address  / 0x100;
     return current_page != target_page;
@@ -124,7 +124,7 @@ unsigned int bpl_rel(cpu_6502 *cpu, operand_t *operand) {
         // add an extra cycle since the branch succeeded
         // and add an additional cycle if the program 
         // counter is moved to a new page
-        cycles += (1 + page_changed(cpu->program_counter + 2, jump_vector));
+        cycles += (1 + page_crossed(cpu->program_counter + 2, jump_vector));
         printf("branching to 0x%04x\n", jump_vector);
     } else {
         printf("negative flag was not clear, no action taken\n");
@@ -133,8 +133,7 @@ unsigned int bpl_rel(cpu_6502 *cpu, operand_t *operand) {
     return cycles;
 }
 
-/*
- * 20 Jump to subroutine (absolute)
+/* 20 Jump to subroutine (absolute)
  *
  * Sets the program counter to the address indicated
  * by the operand. Before the program counter is 
@@ -541,7 +540,7 @@ unsigned int bcs_rel(cpu_6502 *cpu, operand_t *operand) {
         // add an extra cycle since the branch succeeded
         // and add an additional cycle if the program 
         // counter is moved to a new page
-        cycles += (1 + page_changed(cpu->program_counter + 2, jump_vector));
+        cycles += (1 + page_crossed(cpu->program_counter + 2, jump_vector));
         printf("branching to 0x%04x\n", jump_vector);
     } else {
         printf("carry flag was clear, no action taken\n");
@@ -695,7 +694,7 @@ unsigned int bne_rel(cpu_6502 *cpu, operand_t *operand) {
         // add an extra cycle since the branch succeeded
         // and add an additional cycle if the program 
         // counter is moved to a new page
-        cycles += (1 + page_changed(cpu->program_counter + 2, jump_vector)); 
+        cycles += (1 + page_crossed(cpu->program_counter + 2, jump_vector)); 
         printf("branching to 0x%04x\n", jump_vector);
     } else {
         printf("zero flag was not clear, no action taken\n");
@@ -803,8 +802,7 @@ int _6502_execute(cpu_6502 *cpu) {
     operand[0] = mm_read(cpu->memory_map, cpu->program_counter + 1);
     operand[1] = mm_read(cpu->memory_map, cpu->program_counter + 2);
     printf("0x%02x ----------------------------------------\n", opcode);
-    instruction_set[opcode](cpu, (operand_t*)&operand);
-    return cpu->program_counter != 0x8057;
+    return instruction_set[opcode](cpu, (operand_t*)&operand);
 }
 
 void _6502_reset(cpu_6502 *cpu) {
@@ -812,4 +810,19 @@ void _6502_reset(cpu_6502 *cpu) {
     // hi byte of reset vector located at: 0xfffd
     unsigned short reset_vector = (mm_read(cpu->memory_map, 0xfffd) << 8) + mm_read(cpu->memory_map, 0xfffc);
     cpu->program_counter = reset_vector;
+}
+
+int _6502_nmi(cpu_6502 *cpu) {
+    // lo byte of interrupt vector located at: 0xfffa
+    // hi byte of interrupt vector located at: 0xfffb
+    unsigned short interrupt_vector = (mm_read(cpu->memory_map, 0xfffa) << 8) + mm_read(cpu->memory_map, 0xfffb);
+    // push status register to stack
+    push(cpu, cpu->status_register);
+    // push the next instruction onto the stack
+    cpu->program_counter += 2;
+    push(cpu, (unsigned char)(cpu->program_counter >> 8)); // push hi byte
+    push(cpu, (unsigned char)(cpu->program_counter)); // push lo byte
+    cpu->program_counter = interrupt_vector;
+    // return the cycle count for the interrupt
+    return 7;
 }
