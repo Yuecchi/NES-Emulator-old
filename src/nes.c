@@ -7,6 +7,9 @@
 #define NMI_ENABLED (nes->ppu_registers[0] & 0x80)
 #define VBLANK_SIGNALLED (nes->ppu_registers[2] & 0x80)
 
+#define DOTS_PER_SCANLINE 341
+#define DOTS_PER_CPU_CYCLE 3
+
 nes_t *create_nes() {
     nes_t *nes = calloc(1, sizeof(nes_t));
     nes->memory_map = create_memory_map(0x10000);
@@ -112,41 +115,46 @@ void nes_run(nes_t *nes) {
     int cycles;
     int dots_this_frame = 0;
     int in_vblank       = 0;
-
     while (1) {
         cycles = 0;
+
+        if (VBLANK_SIGNALLED) getchar();
+
+        // execute the next instruction 
+        cycles += _6502_execute(nes->cpu);
+
         // when vblank is signalled by the ppu, perform a
         // non-masking interrupt and clear bit 7 of PPUSTATUS
-        if (NMI_ENABLED && VBLANK_SIGNALLED) {
-            cycles += _6502_nmi(nes->cpu);
+        if (VBLANK_SIGNALLED) {
             nes->ppu_registers[2] &= 0x7f;
+            if (NMI_ENABLED) {
+                cycles += _6502_nmi(nes->cpu);
+            } 
         }
 
-        // execute the next instruction and use the number
-        // of cycles the instruction required to execute
-        // to calculate the number of ppu cycles (dots)
-        // which occurred during the execution of the 
-        // cpu instruction
-        cycles += _6502_execute(nes->cpu);
-        dots_this_frame += cycles * 3;
+        // use the number of cycles the instruction 
+        // required to execute to calculate the number)
+        // of ppu cycles (dots which occurred during the 
+        // execution of the  cpu instruction
+        dots_this_frame += (cycles * DOTS_PER_CPU_CYCLE);
 
-        // signal that vblank has started at the start of
-        // every 242nd scanline
-        if (!in_vblank && dots_this_frame >= (241 * 341) + 2) {
+        // signal that vblank has started on the 2nd dot
+        // of every 242nd scanline
+        if (!in_vblank && dots_this_frame >= (241 * DOTS_PER_SCANLINE) + 2) {
             nes->ppu_registers[2] |= 0x80;
             in_vblank = 1;
         }
 
-        // signal that vblank has ended at the start of
+        // signal that vblank has ended on the 2nd dot
         // every 262nd scanline
-        if (dots_this_frame >= (261 * 341) + 2) {
+        if (dots_this_frame >= (261 * DOTS_PER_SCANLINE) + 2) {
             nes->ppu_registers[2] &= 0x7f;
             in_vblank = 0;
         }
 
         // reset dots back to 0 every 262 scanlines
-        if (dots_this_frame >= (262 * 341)) {
-            dots_this_frame = dots_this_frame % (262 * 341);
+        if (dots_this_frame >= (262 * DOTS_PER_SCANLINE)) {
+            dots_this_frame = dots_this_frame % (262 * DOTS_PER_SCANLINE);
         }
     }
 

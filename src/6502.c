@@ -819,7 +819,6 @@ int _6502_nmi(cpu_6502 *cpu) {
     // push status register to stack
     push(cpu, cpu->status_register);
     // push the next instruction onto the stack
-    cpu->program_counter += 2;
     push(cpu, (unsigned char)(cpu->program_counter >> 8)); // push hi byte
     push(cpu, (unsigned char)(cpu->program_counter)); // push lo byte
     cpu->program_counter = interrupt_vector;
