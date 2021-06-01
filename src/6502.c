@@ -512,7 +512,7 @@ unsigned int lda_abs(cpu_6502 *cpu, operand_t *operand) {
     return 4;
 }
 
-/* B0 Branch on carry clear (relative)
+/* B0 Branch on carry set (relative)
  *
  * Branch on C = 1
  *
@@ -551,17 +551,30 @@ unsigned int bcs_rel(cpu_6502 *cpu, operand_t *operand) {
 }
 
 /* BD Load accumulator with memory (absolute X)
+ *
  * M -> A
+ * 
+ * Bytes:  3
+ * Cycles: 4 if no page boundry is crossed
+ *         5 if a page boundry is crossed
  */
 
 unsigned int lda_absx(cpu_6502 *cpu, operand_t *operand) {
-    cpu->accumulator = mm_read(cpu->memory_map, operand->address + cpu->reg_x);
+    unsigned int cycles = 4;
+    unsigned short target_address = operand->address + cpu->reg_x;
+    cpu->accumulator = mm_read(cpu->memory_map, target_address);
+    // add an additional cycle if the base address
+    // is on a different page to the address plus
+    // the offset
+    cycles += page_crossed(operand->address, target_address);
     printf("accumulator set to 0x%02x\n", cpu->accumulator);
     set_status_flags(cpu, cpu->accumulator);
     cpu->program_counter += 3;
+    return cycles;
 }
 
 /* C0 Compare memory with index Y (immediate)
+ *
  * Y - M
  *
  * Compares the contents of the Y register with an immediate 
@@ -569,7 +582,10 @@ unsigned int lda_absx(cpu_6502 *cpu, operand_t *operand) {
  * 
  * CARRY    : Set if Y >= M (unsigned comparison)
  * ZERO     : Set if Y == M
- * NEGATIVE : Set if the result is negative 
+ * NEGATIVE : Set if the result is negative
+ * 
+ * Bytes:  2
+ * Cycles: 2
  */
 
 unsigned int cpy_imm(cpu_6502 *cpu, operand_t *operand) {
@@ -584,11 +600,15 @@ unsigned int cpy_imm(cpu_6502 *cpu, operand_t *operand) {
         printf("carry status bit cleared\n");
     }
     cpu->program_counter += 2;
+    return 2;
 }
 
 /* C8 Increment index Y by one
  *
  * Y + 1 -> Y
+ * 
+ * Bytes:  1
+ * Cycles: 2
  */
 
 unsigned int iny_impl(cpu_6502 *cpu, operand_t *operand) {
@@ -596,9 +616,11 @@ unsigned int iny_impl(cpu_6502 *cpu, operand_t *operand) {
     set_status_flags(cpu, cpu->reg_y);
     printf("register Y increased to 0x%02x\n", cpu->reg_y);
     cpu->program_counter += 1;
+    return 2;
 }
 
 /* C9 Compare memory with accumulator (immediate)
+ *
  * A - M
  *
  * Compares the contents of the accumulator with an immediate 
@@ -607,6 +629,9 @@ unsigned int iny_impl(cpu_6502 *cpu, operand_t *operand) {
  * CARRY    : Set if A >= M (unsigned comparison)
  * ZERO     : Set if A == M
  * NEGATIVE : Set if the result is negative 
+ * 
+ * Bytes:  2
+ * Cycles: 2
  */
 
 unsigned int cmp_imm(cpu_6502 *cpu, operand_t *operand) {
@@ -621,6 +646,7 @@ unsigned int cmp_imm(cpu_6502 *cpu, operand_t *operand) {
         printf("carry status bit cleared\n");
     }
     cpu->program_counter += 2;
+    return 2;
 }
 
 /* CA Decrement index X by one (implied)
@@ -628,43 +654,73 @@ unsigned int cmp_imm(cpu_6502 *cpu, operand_t *operand) {
  * X - 1 -> X
  * 
  * Decrements the value held by register X by one
+ * 
+ * Bytes:  1
+ * Cycles: 2 
  */
 unsigned int dex_impl(cpu_6502 *cpu, operand_t *operand) {
     cpu->reg_x -= 1;
     printf("register X reduced to 0x%02x\n", cpu->reg_x);
     set_status_flags(cpu, cpu->reg_x);   
     cpu->program_counter += 1;
+    return 2;
 }
 
 /* D0 Branch on result not zero (relative)
+ *
  * Branch on Z = 0
  *
- * If the zero flag is clear, then increase
- * the value of the program counter by the operand
+ * If the zero flag is clear, then change
+ * the value of the program counter by the 
+ * value of the operand
+ * 
+ * Bytes:  2
+ * Cycles: 2 if no branching operation occurs
+ *         3 if the branching operation occurs
+ *         4 if the branching operation occurs 
+ *           and the destination is on a new page
+ * 
+ * note: A page boundry crossing occurs when the
+ *       branch destination is on a different page 
+ *       than the instruction AFTER the branch 
+ *       instruction
  */
 
 unsigned int bne_rel(cpu_6502 *cpu, operand_t *operand) {
     unsigned short jump_vector = cpu->program_counter + 2;
+    unsigned int cycles = 2;
     if (!(FLAG(cpu, ZERO))) {
         // must cast to char since jumps can be negative
-        jump_vector += (char)operand->byte[0]; 
+        jump_vector += (char)operand->byte[0];
+        // add an extra cycle since the branch succeeded
+        // and add an additional cycle if the program 
+        // counter is moved to a new page
+        cycles += (1 + page_changed(cpu->program_counter + 2, jump_vector)); 
         printf("branching to 0x%04x\n", jump_vector);
     } else {
         printf("zero flag was not clear, no action taken\n");
     }
     cpu->program_counter = jump_vector;
+    return cycles;
 }
 
 /* D8 Clear decimal mode
+ *
  * 0 -> D
+ * 
+ * Bytes:  1
+ * Cycles: 2
  */
+
 unsigned int cld_impl(cpu_6502 *cpu, operand_t *operand) {
     CLEAR_FLAG(cpu, DECIMAL);
     cpu->program_counter += 1;
     printf("decimal status bit cleared\n");
+    return 2;
 }
 
 /* E0 Compare memory with index X (immediate)
+ *
  * X - M
  *
  * Compares the contents of the X register with an immediate 
@@ -673,6 +729,9 @@ unsigned int cld_impl(cpu_6502 *cpu, operand_t *operand) {
  * CARRY    : Set if X >= M (unsigned comparison)
  * ZERO     : Set if X == M
  * NEGATIVE : Set if the result is negative 
+ * 
+ * Bytes:  2
+ * Cycles: 2
  */
 
 unsigned int cpx_imm(cpu_6502 *cpu, operand_t *operand) {
@@ -687,11 +746,15 @@ unsigned int cpx_imm(cpu_6502 *cpu, operand_t *operand) {
         printf("carry status bit cleared\n");
     }
     cpu->program_counter += 2;
+    return 2;
 }
 
 /* EE Increment memory by one
  *
  * M + 1 -> M
+ * 
+ * Bytes:  1
+ * Cycles: 5
  */
 
 unsigned int inc_abs(cpu_6502 *cpu, operand_t *operand) {
@@ -700,6 +763,7 @@ unsigned int inc_abs(cpu_6502 *cpu, operand_t *operand) {
     mm_write(cpu->memory_map, operand->address, value);
     set_status_flags(cpu, value);
     cpu->program_counter += 3;
+    return 5;
 }
 
 operation_t instruction_set[0x100] = {
