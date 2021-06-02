@@ -66,7 +66,7 @@ unsigned short pop_address(cpu_6502 *cpu) {
  *
  * return: 1 if a page change has occured, otherwise 0
  */
-static unsigned int page_crossed(unsigned int current_address, unsigned int target_address) {
+unsigned int page_crossed(unsigned int current_address, unsigned int target_address) {
     unsigned int current_page = current_address / 0x100;
     unsigned int target_page  = target_address  / 0x100;
     return current_page != target_page;
@@ -91,6 +91,148 @@ static unsigned short fetch_address(cpu_6502 *cpu, unsigned short address_locati
     return ((mm_read(cpu->memory_map, address_location + 1) << 8) + mm_read(cpu->memory_map, address_location));
 }
 
+/* executes the 'bit' instruction.
+ *
+ * e.g:
+ *
+ * BIT operand
+ * 
+ * This instruction sets the negative and overflow flags equal to bits 7 
+ * and 6 of the operand respectively. It will also set the zero status flag 
+ * active if the result of ANDing the operand with the value held by the 
+ * accumulator is zero.
+ * 
+ * e.g:
+ * 
+ * Z = !(A & operand)
+ * 
+ */
+
+void bit_exec(cpu_6502 *cpu, unsigned char value) {
+    // set the negative status flag equal to the
+    // 7th bit of the fetched value
+    if (value & 0x80) {
+        SET_FLAG(cpu, NEGATIVE);
+        printf("negative status bit set\n");
+    } else {
+        CLEAR_FLAG(cpu, NEGATIVE);
+        printf("negative status bit cleared\n");
+    }
+    // set the overflow status flag equal to the
+    // 6th bit of the fetched value
+    if (value & 0x40) {
+        SET_FLAG(cpu, OVERFLOW);
+        printf("overflow status bit set\n");
+    } else {
+        CLEAR_FLAG(cpu, OVERFLOW);
+        printf("overflow status bit cleared\n");
+    }
+    // set the zero status if the result of the fetched
+    // value ANDed with the value held by the accumulator
+    // is zero
+    if (!(cpu->accumulator & value)) {
+        SET_FLAG(cpu, ZERO);
+        printf("zero status bit set\n");
+    } else {
+        CLEAR_FLAG(cpu, ZERO);
+        printf("zero status bit cleared\n");
+    }
+}
+
+unsigned char ror_exec(cpu_6502 *cpu, unsigned char value) {
+    // store the 0th bit of the value so it can be used
+    // later to determine the state of the carry flag 
+    // after the operation
+    unsigned char old_bit_0 = value & 0x01; 
+    // store the current state of the carry flag so it
+    // can be used later to determine what the 7th bit
+    // of the value will be
+    unsigned char new_bit_7 = FLAG(cpu, CARRY) ? 1 : 0;
+    // shift the value right one bit, set the 7th 
+    // bit to the value of the carry and update
+    // memory with the modified value
+    value >>= 1;
+    value |= (new_bit_7 * 0x80);
+    
+    // determine the state of the zero and negative flags
+    set_status_flags(cpu, value);
+
+    // determine the state of the carry flag
+    if (old_bit_0) {
+        SET_FLAG(cpu, CARRY);
+        printf("carry status bit set\n");
+    } else {
+        CLEAR_FLAG(cpu, CARRY);
+        printf("carry status bit cleared\n");
+    }
+
+    return value;
+}
+
+unsigned char rol_exec(cpu_6502 *cpu, unsigned char value) {
+    // store the 7th bit of the value so it can be used
+    // later to determine the state of the carry flag 
+    // after the operation
+    unsigned char old_bit_7 = value & 0x80; 
+    // store the current state of the carry flag so it
+    // can be used later to determine what the 0th bit
+    // of the value will be
+    unsigned char new_bit_0 = FLAG(cpu, CARRY) ? 1 : 0;
+    // shift the value left one bit and set the 0th 
+    // bit to the value of the carry
+    value <<= 1;
+    value |= new_bit_0;
+    
+    // determine the state of the zero and negative flags
+    set_status_flags(cpu, value);
+
+    // determine the state of the carry flag
+    if (old_bit_7) {
+        SET_FLAG(cpu, CARRY);
+        printf("carry status bit set\n");
+    } else {
+        CLEAR_FLAG(cpu, CARRY);
+        printf("carry status bit cleared\n");
+    }
+
+    return value;
+}
+
+/* performs a logical bit shift one place to the right
+ * on the given value. The resulting value is used to 
+ * determine the state of the zero, negative and carry
+ * flags where:
+ * 
+ * Z = value == 0x0 
+ * N = value & 0x80
+ * C = 0th bit of value before shift  
+ */
+
+unsigned int lsr_exec(cpu_6502 *cpu, unsigned char value) {
+    // store the 0th bit of the value before the shift
+    // so it can be used later to determine the state
+    // of the carry flag
+    unsigned char old_bit_0 = value & 0x01;
+    
+    // perform the shift
+    value >>= 1;
+
+    // determine the state of the zero and negative flags
+    set_status_flags(cpu, value);
+    
+    // set the carry flag equal to the old 0th bit
+    // of the value
+    if (old_bit_0) {
+        SET_FLAG(cpu, CARRY);
+        printf("carry status bit set\n");
+    } else {
+        CLEAR_FLAG(cpu, CARRY);
+        printf("carry status bit cleared\n");
+    }
+
+    return value;
+}
+
 /* 05 OR memory with accumulator (zeropage)
  * 
  * A OR M -> A
@@ -110,7 +252,7 @@ unsigned int ora_zpg(cpu_6502 *cpu, operand_t *operand) {
     // using the immediate mode instruction
     unsigned char new_operand[2]= {0x0, 0x0};
     new_operand[0] = mm_read(cpu->memory_map, operand->byte[0]);
-    // make sure to add an additional cycle to account for the fact
+    // make sure to add one additional cycle to account for the fact
     // that this is a zeropage operation, not an immediate one
     return ora_imm(cpu, (operand_t*)&new_operand) + 1;
 }
@@ -239,6 +381,51 @@ unsigned int jsr_abs(cpu_6502 *cpu, operand_t *operand) {
     return 6;
 }
 
+/* 24 Tests bits in memory with accumulator (zeropage)
+ * 
+ * Fetches a value from the location in memory given by
+ * the operand. The negative flag and overflow are made
+ * equal to bits 7 and 6 of the fetched value respectively.
+ * The zero status flag is set if the result of ANDing the 
+ * fetched value with the value held by the accumulator results
+ * in zero.
+ * 
+ * e.g:
+ * 
+ * Z = !(A & M)
+ * N = M7
+ * V = M6
+ * 
+ * Bytes:  2
+ * Cycles: 3
+ */
+
+unsigned int bit_zpg(cpu_6502 *cpu, operand_t *operand) {
+    // fetch value from memory
+    unsigned char value = mm_read(cpu->memory_map, operand->byte[0]); 
+    bit_exec(cpu, value);
+    cpu->program_counter += 2;
+    return 3;
+}
+
+/* 26 Rotate one bit left (zeropage)
+ *
+ * Bytes:  2
+ * Cycles: 5
+ */ 
+
+unsigned int rol_zpg(cpu_6502 *cpu, operand_t *operand) {   
+    // fetch the value from memory
+    unsigned char target_address = operand->byte[0];
+    unsigned char value = mm_read(cpu->memory_map, target_address);     
+    // execute the rotate operation and store the modifed value in memory
+    value = rol_exec(cpu, value);
+    mm_write(cpu->memory_map, target_address, value);
+    printf("ROL: memory location 0x%04x set to 0x%02x\n", target_address, value);
+    cpu->program_counter += 2;
+    return 5;
+}
+
 /* 29 AND memory with accumulator (immediate)
  * 
  * A AND M -> A
@@ -316,38 +503,49 @@ unsigned int rol_acc(cpu_6502 *cpu, operand_t *operand) {
  */
 
 unsigned int bit_abs(cpu_6502 *cpu, operand_t *operand) {
-    // fetch value
+    // fetch value from memory
     unsigned char value = mm_read(cpu->memory_map, operand->address); 
-    // set the negative status flag equal to the
-    // 7th bit of the fetched value
-    if (value & 0x80) {
-        SET_FLAG(cpu, NEGATIVE);
-        printf("negative status bit set\n");
-    } else {
-        CLEAR_FLAG(cpu, NEGATIVE);
-        printf("negative status bit cleared\n");
-    }
-    // set the overflow status flag equal to the
-    // 6th bit of the fetched value
-    if (value & 0x40) {
-        SET_FLAG(cpu, OVERFLOW);
-        printf("overflow status bit set\n");
-    } else {
-        CLEAR_FLAG(cpu, OVERFLOW);
-        printf("overflow status bit cleared\n");
-    }
-    // set the zero status if the result of the fetched
-    // value ANDed with the value held by the accumulator
-    // is zero
-    if (!(cpu->accumulator & value)) {
-        SET_FLAG(cpu, ZERO);
-        printf("zero status bit set\n");
-    } else {
-        CLEAR_FLAG(cpu, ZERO);
-        printf("zero status bit cleared\n");
-    }
+    bit_exec(cpu, value);
     cpu->program_counter += 3;
     return 4;
+}
+
+/* 30 Branch on minus plus (relative)
+ *
+ * Branch on N = 1
+ *
+ * If the negative flag is set, then change
+ * the value of the program counter by the value
+ * of the operand
+ * 
+ * Bytes:  2
+ * Cycles: 2 if no branching operation occurs
+ *         3 if the branching operation occurs
+ *         4 if the branching operation occurs 
+ *           and the destination is on a new page
+ * 
+ * note: A page boundry crossing occurs when the
+ *       branch destination is on a different page 
+ *       than the instruction AFTER the branch 
+ *       instruction
+ */
+
+unsigned int bmi_rel(cpu_6502 *cpu, operand_t *operand) {
+    unsigned short jump_vector = cpu->program_counter + 2;
+    unsigned int cycles = 2;
+    if ((FLAG(cpu, NEGATIVE))) {
+        // must cast to char since jumps can be negative
+        jump_vector += (char)operand->byte[0];
+        // add an extra cycle since the branch succeeded
+        // and add an additional cycle if the program 
+        // counter is moved to a new page
+        cycles += (1 + page_crossed(cpu->program_counter + 2, jump_vector));
+        printf("branching to 0x%04x\n", jump_vector);
+    } else {
+        printf("negative flag was clear, no action taken\n");
+    }
+    cpu->program_counter = jump_vector;
+    return cycles;
 }
 
 /* 38 Set carry flag
@@ -479,11 +677,18 @@ unsigned int eor_imm(cpu_6502 *cpu, operand_t *operand) {
  */
 
 unsigned int lsr_acc(cpu_6502 *cpu, operand_t *operand) {
-    // store bit 0 of the accumulator before the shift
+    // store the 0th bit of the accumulator before the 
+    // shift so it can be used later to determine the 
+    // state of the carry flag
     unsigned char old_bit_0 = cpu->accumulator & 0x01;
+    
+    // perform the shift
     cpu->accumulator >>= 1;
     printf("accumulator set to 0x%02x\n", cpu->accumulator);
+
+    // determine the state of the zero and negative flags
     set_status_flags(cpu, cpu->accumulator);
+
     // set the carry flag equal to the old 0th bit
     // of the accumulator
     if (old_bit_0) {
@@ -493,8 +698,29 @@ unsigned int lsr_acc(cpu_6502 *cpu, operand_t *operand) {
         CLEAR_FLAG(cpu, CARRY);
         printf("carry status bit cleared\n");
     }
+    
     cpu->program_counter += 1;
     return 2;
+}
+
+/* 46 Shift right one bit (zeropage)
+ *
+ * A >> 1 -> A
+ * 
+ * Bytes:  2
+ * Cycles: 5
+ */
+
+unsigned int lsr_zpg(cpu_6502 *cpu, operand_t *operand) {
+    // fetch the value from memory
+    unsigned short target_address = operand->byte[0];
+    unsigned char value = mm_read(cpu->memory_map, target_address);
+    // execute the shift operation and store the modifed value in memory
+    value = lsr_exec(cpu, value);
+    mm_write(cpu->memory_map, target_address, value);
+    printf("LSR: memory location 0x%04x set to 0x%02x\n", target_address, value);
+    cpu->program_counter += 2;
+    return 5;
 }
 
 /* 4C Jump to new location (absolute)
@@ -666,7 +892,7 @@ unsigned int ror_acc(cpu_6502 *cpu, operand_t *operand) {
     // shift the value of the accumulator right one bit
     // and set the 7th bit to the value of the carry flag
     cpu->accumulator >>= 1;
-    cpu->accumulator |= new_bit_7;
+    cpu->accumulator |= (new_bit_7 * 0x80);
 
     // determine the state of the zero and negative flags
     set_status_flags(cpu, cpu->accumulator);
@@ -747,6 +973,38 @@ unsigned int sei_impl(cpu_6502 *cpu, operand_t *operand) {
     return 2;
 }
 
+/* 79 Adds memory to acccumulator with carry (absolute Y)
+ *
+ * A + M + C -> A, C
+ * 
+ * Sets Negative flag if: Bit 7 of result is active
+ * Sets Zero flag if    : result == 0x0
+ * Sets Carry flag if   : result >  0xff
+ * Sets Overflow flag if: ((A ^ result) & (M ^ result) & 0x80) is non zero
+ * 
+ * Bytes:  3
+ * Cycles: 4 if no page boundry is crossed
+ *         5 if a page boundry is crossed
+ */
+
+unsigned int adc_absy(cpu_6502 *cpu, operand_t *operand) {
+    // fetch the second operand of the addition operation from memory
+    unsigned short base_address   = operand->address;
+    unsigned short target_address = base_address + cpu->reg_y;
+    unsigned char new_operand[2]  = {0x0, 0x0};
+    new_operand[0] = mm_read(cpu->memory_map, target_address);
+    
+    // perform the addition operation using the immediate
+    // mode instruction, making sure to account for the 
+    // additional cycles of an abosolute Y operation
+    int cycles = adc_imm(cpu, (operand_t*)&new_operand) + 2 + page_crossed(base_address, target_address);
+    
+    // increment the program counter an additional time to 
+    // account for the extra byte in the instruction
+    cpu->program_counter += 1;
+    return cycles;
+}
+
 /* 7E Rotate one bit right (absolute X)
  *
  * Bytes:  3
@@ -756,37 +1014,31 @@ unsigned int sei_impl(cpu_6502 *cpu, operand_t *operand) {
 unsigned int ror_absx(cpu_6502 *cpu, operand_t *operand) {   
     // fetch the value from memory
     unsigned short target_address = operand->address + cpu->reg_x;
-    unsigned char value = mm_read(cpu->memory_map, target_address);    
-    // store the 0th bit of the value so it can be used
-    // later to determine the state of the carry flag 
-    // after the operation
-    unsigned char old_bit_0 = value & 0x01; 
-    // store the current state of the carry flag so it
-    // can be used later to determine what the 7th bit
-    // of the value will be
-    unsigned char new_bit_7 = FLAG(cpu, CARRY) ? 1 : 0;
-
-    // shift the value right one bit, set the 7th 
-    // bit to the value of the carry and update
-    // memory with the modified value
-    value >>= 1;
-    value |= new_bit_7;
+    unsigned char value = mm_read(cpu->memory_map, target_address);     
+    // execute the rotate operation and store the modifed value in memory
+    value = ror_exec(cpu, value);
     mm_write(cpu->memory_map, target_address, value);
-
-    // determine the state of the zero and negative flags
-    set_status_flags(cpu, value);
-
-    // determine the state of the carry flag
-    if (old_bit_0) {
-        SET_FLAG(cpu, CARRY);
-        printf("carry status bit set\n");
-    } else {
-        CLEAR_FLAG(cpu, CARRY);
-        printf("carry status bit cleared\n");
-    }
-
+    printf("ROR: memory location 0x%04x set to 0x%02x\n", target_address, value);
     cpu->program_counter += 3;
     return 7;
+}
+
+/* 84 Store index Y in memory (zeropage)
+ *
+ * Y -> M
+ * 
+ * Stores the value held by register Y at the
+ * memory location indicated by the operand
+ * 
+ * Bytes:  2
+ * Cycles: 3
+ */
+
+unsigned int sty_zpg(cpu_6502 *cpu, operand_t *operand) {
+    mm_write(cpu->memory_map, operand->byte[0], cpu->reg_y);
+    printf("memory location 0x%04x set to 0x%02x\n", operand->byte[0], mm_read(cpu->memory_map, operand->byte[0]));
+    cpu->program_counter += 2;
+    return 3;
 }
 
 /* 85 Store accumulator in memory (zeropage)
@@ -893,6 +1145,24 @@ unsigned int sty_abs(cpu_6502 *cpu, operand_t *operand) {
 
 unsigned int sta_abs(cpu_6502 *cpu, operand_t *operand) {
     mm_write(cpu->memory_map, operand->address, cpu->accumulator);
+    printf("memory location 0x%04x set to 0x%02x\n", operand->address, mm_read(cpu->memory_map, operand->address));
+    cpu->program_counter += 3;
+    return 4;
+}
+
+/* 8E Store index X in memory (absolute)
+ *
+ * X -> M
+ * 
+ * Stores the value held by the X register at the 
+ * location in memory indicated by the operand.
+ * 
+ * Bytes:  3
+ * Cycles: 4
+ */
+
+unsigned int stx_abs(cpu_6502 *cpu, operand_t *operand) {
+    mm_write(cpu->memory_map, operand->address, cpu->reg_x);
     printf("memory location 0x%04x set to 0x%02x\n", operand->address, mm_read(cpu->memory_map, operand->address));
     cpu->program_counter += 3;
     return 4;
@@ -1152,6 +1422,26 @@ unsigned int lda_zpg(cpu_6502 *cpu, operand_t *operand) {
     return 3;
 }
 
+/* A6 Load index X with memory (zeropage)
+ *
+ * M -> X
+ * 
+ * Fetches a value from the location in memory given
+ * by the operand and stores the fetched value in the
+ * X register
+ * 
+ * Bytes:  2
+ * Cycles: 3
+ */
+
+unsigned int ldx_zpg(cpu_6502 *cpu, operand_t *operand) {
+    cpu->reg_x = mm_read(cpu->memory_map, operand->byte[0]);
+    printf("register X set to 0x%02x\n", cpu->reg_x);
+    set_status_flags(cpu, cpu->reg_x);
+    cpu->program_counter += 2;
+    return 3;
+}
+
 /* A8 transfer accumulator to index Y (implied)
  *
  * A -> Y
@@ -1252,7 +1542,7 @@ unsigned int lda_abs(cpu_6502 *cpu, operand_t *operand) {
  * 
  * Fetches a value from the location in memory given
  * by the operand and stores the fetched value in the
- * register X
+ * X register
  * 
  * Bytes:  3
  * Cycles: 4
@@ -1493,7 +1783,7 @@ unsigned int dec_zpg(cpu_6502 *cpu, operand_t *operand) {
     return 5;
 }
 
-/* C8 Increment index Y by one
+/* C8 Increment index Y by one (implied)
  *
  * Y + 1 -> Y
  * 
@@ -1557,6 +1847,38 @@ unsigned int dex_impl(cpu_6502 *cpu, operand_t *operand) {
     set_status_flags(cpu, cpu->reg_x);   
     cpu->program_counter += 1;
     return 2;
+}
+
+/* CD Compare memory with accumulator (absolute)
+ *
+ * A - M
+ *
+ * Compares the contents of the accumulator with a value fetched 
+ * from the memory location given by the operand and sets the zero, 
+ * carry and negative flags as appropriate.
+ * 
+ * CARRY    : Set if A >= M (unsigned comparison)
+ * ZERO     : Set if A == M
+ * NEGATIVE : Set if the result is negative 
+ * 
+ * Bytes:  3
+ * Cycles: 4
+ */
+
+unsigned int cmp_abs(cpu_6502 *cpu, operand_t *operand) {
+    // fetch the value from memory
+    unsigned char new_operand[2] ={0x0, 0x0};
+    new_operand[0] = mm_read(cpu->memory_map, operand->address);
+    
+    // perform the operation using the immediate instruction
+    // making sure to add two additional cycles to account for
+    // this being an absolute operation, not an immediate one
+    int cycles = cmp_imm(cpu, (operand_t*)&new_operand) + 2;
+    
+    // increment the program counter an additional time to 
+    // account for the extra byte in the instruction
+    cpu->program_counter += 1;
+    return cycles;
 }
 
 /* CE Decrement memory by one (absolute)
@@ -1630,6 +1952,42 @@ unsigned int cld_impl(cpu_6502 *cpu, operand_t *operand) {
     cpu->program_counter += 1;
     printf("decimal status bit cleared\n");
     return 2;
+}
+
+/* D9 Compare memory with accumulator (absolute Y)
+ *
+ * A - M
+ *
+ * Compares the contents of the accumulator with a value fetched 
+ * from the memory location given by the operand plus the value  
+ * of the Y register and sets the zero, carry and negative flags 
+ * as appropriate.
+ * 
+ * CARRY    : Set if A >= M (unsigned comparison)
+ * ZERO     : Set if A == M
+ * NEGATIVE : Set if the result is negative 
+ * 
+ * Bytes:  3
+ * Cycles: 4 if no page boundry is crossed
+ *         5 if a page boundry is crossed
+ */
+
+unsigned int cmp_absy(cpu_6502 *cpu, operand_t *operand) {
+    // fetch the value from memory
+    unsigned short base_address   = operand->address;
+    unsigned short target_address = base_address + cpu->reg_y;
+    unsigned char new_operand[2]  = {0x0, 0x0};
+    new_operand[0] = mm_read(cpu->memory_map, target_address);
+    
+    // perform the operation using the immediate instruction
+    // making sure to add all additional cycles to account for
+    // this being an absolute Y operation, not an immediate one
+    int cycles = cmp_imm(cpu, (operand_t*)&new_operand) + 2 + page_crossed(base_address, target_address);
+    
+    // increment the program counter an additional time to 
+    // account for the extra byte in the instruction
+    cpu->program_counter += 1;
+    return cycles;
 }
 
 /* E0 Compare memory with index X (immediate)
@@ -1794,7 +2152,7 @@ unsigned int beq_rel(cpu_6502 *cpu, operand_t *operand) {
  */
 
 unsigned int sbc_absy(cpu_6502 *cpu, operand_t *operand) {
-    // fetch the operand of the subtraction operation from memory
+    // fetch the second operand of the subtraction operation from memory
     unsigned short base_address   = operand->address;
     unsigned short target_address = base_address + cpu->reg_y;
     unsigned char  new_operand[2] = {0x0, 0x0};
@@ -1802,7 +2160,7 @@ unsigned int sbc_absy(cpu_6502 *cpu, operand_t *operand) {
 
     // perform the subtraction operation using the immediate
     // mode instruction, making sure to account for the additional
-    // cycles of an abosOlute Y operation
+    // cycles of an abosolute Y operation
     int cycles = sbc_imm(cpu, (operand_t*)&new_operand) + 2 + page_crossed(base_address, target_address);
 
     // increment the program counter an additional time to 
@@ -1815,18 +2173,18 @@ operation_t instruction_set[0x100] = {
     //             00        01        02      03      04        05        06      07      08        09        0A      0B      0C        0D        0E      0F
     /* 00 */    NULL    , NULL    , NULL    , NULL, NULL    , ora_zpg , NULL    , NULL, NULL    , ora_imm , asl_acc , NULL, NULL    , NULL    , NULL    , NULL,
     /* 10 */    bpl_rel , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, clc_impl, NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL,
-    /* 20 */    jsr_abs , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, NULL    , and_imm , rol_acc , NULL, bit_abs , NULL    , NULL    , NULL,
-    /* 30 */    NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, sec_impl, NULL    , NULL    , NULL, NULL    , and_absx, NULL    , NULL,
-    /* 40 */    rti_impl, NULL    , NULL    , NULL, NULL    , eor_zpg , NULL    , NULL, pha_impl, eor_imm , lsr_acc , NULL, jmp_abs , NULL    , NULL    , NULL,
+    /* 20 */    jsr_abs , NULL    , NULL    , NULL, bit_zpg , NULL    , rol_zpg , NULL, NULL    , and_imm , rol_acc , NULL, bit_abs , NULL    , NULL    , NULL,
+    /* 30 */    bmi_rel , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, sec_impl, NULL    , NULL    , NULL, NULL    , and_absx, NULL    , NULL,
+    /* 40 */    rti_impl, NULL    , NULL    , NULL, NULL    , eor_zpg , lsr_zpg , NULL, pha_impl, eor_imm , lsr_acc , NULL, jmp_abs , NULL    , NULL    , NULL,
     /* 50 */    NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL,
     /* 60 */    rts_impl, NULL    , NULL    , NULL, NULL    , adc_zpg , NULL    , NULL, pla_impl, adc_imm , ror_acc , NULL, jmp_indr, adc_abs , NULL    , NULL,
-    /* 70 */    NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, sei_impl, NULL    , NULL    , NULL, NULL    , NULL    , ror_absx, NULL,
-    /* 80 */    NULL    , NULL    , NULL    , NULL, NULL    , sta_zpg , stx_zpg , NULL, dey_impl, NULL    , txa_impl, NULL, sty_abs , sta_abs , NULL    , NULL,
+    /* 70 */    NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, sei_impl, adc_absy, NULL    , NULL, NULL    , NULL    , ror_absx, NULL,
+    /* 80 */    NULL    , NULL    , NULL    , NULL, sty_zpg , sta_zpg , stx_zpg , NULL, dey_impl, NULL    , txa_impl, NULL, sty_abs , sta_abs , stx_abs , NULL,
     /* 90 */    bcc_rel , sta_indy, NULL    , NULL, NULL    , sta_zpgx, NULL    , NULL, tya_impl, sta_absy, txs_impl, NULL, NULL    , sta_absx, NULL    , NULL,
-    /* A0 */    ldy_imm , NULL    , ldx_imm , NULL, ldy_zpg , lda_zpg , NULL    , NULL, tay_impl, lda_imm , tax_impl, NULL, ldy_abs , lda_abs , ldx_abs , NULL,
+    /* A0 */    ldy_imm , NULL    , ldx_imm , NULL, ldy_zpg , lda_zpg , ldx_zpg , NULL, tay_impl, lda_imm , tax_impl, NULL, ldy_abs , lda_abs , ldx_abs , NULL,
     /* B0 */    bcs_rel , lda_indy, NULL    , NULL, NULL    , lda_zpgx, NULL    , NULL, NULL    , lda_absy, NULL    , NULL, NULL    , lda_absx, ldx_absy, NULL,
-    /* C0 */    cpy_imm , NULL    , NULL    , NULL, NULL    , NULL    , dec_zpg , NULL, iny_impl, cmp_imm , dex_impl, NULL, NULL    , NULL    , dec_abs , NULL,
-    /* D0 */    bne_rel , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, cld_impl, NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL,
+    /* C0 */    cpy_imm , NULL    , NULL    , NULL, NULL    , NULL    , dec_zpg , NULL, iny_impl, cmp_imm , dex_impl, NULL, NULL    , cmp_abs , dec_abs , NULL,
+    /* D0 */    bne_rel , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, cld_impl, cmp_absy, NULL    , NULL, NULL    , NULL    , NULL    , NULL,
     /* E0 */    cpx_imm , NULL    , NULL    , NULL, NULL    , NULL    , inc_zpg , NULL, inx_impl, sbc_imm , NULL    , NULL, NULL    , NULL    , inc_abs , NULL,
     /* F0 */    beq_rel , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, NULL    , sbc_absy, NULL    , NULL, NULL    , NULL    , NULL    , NULL,
 };
