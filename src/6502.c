@@ -58,6 +58,10 @@ unsigned char pop(cpu_6502 *cpu) {
     return byte;
 }
 
+unsigned short pop_address(cpu_6502 *cpu) {
+    return pop(cpu) + (pop(cpu) * 0x100);
+}
+
 /* determines if a page boundry has been crossed
  *
  * return: 1 if a page change has occured, otherwise 0
@@ -390,6 +394,27 @@ unsigned int and_absx(cpu_6502 *cpu, operand_t *operand) {
     return cycles;
 }
 
+/* 40 Return from interrupt (implied)
+ *
+ * pull SR, pull PC
+ * 
+ * Returns the program to the location it was at
+ * before the last interrupt occured
+ * 
+ * Bytes:  1
+ * Cycles: 6
+ */
+
+unsigned int rti_impl(cpu_6502 *cpu, operand_t *operand) {
+    // pop the return address off of the stack
+    unsigned short jump_vector = pop_address(cpu);
+    // restore the state of the status register before
+    // the interrupt occurred
+    cpu->status_register = pop(cpu);
+    cpu->program_counter = jump_vector;
+    return 7;
+}
+
 /* 45 XOR memory with accumulator (zeropage)
  * 
  * A XOR M -> A
@@ -508,7 +533,7 @@ unsigned int jmp_abs(cpu_6502 *cpu, operand_t *operand) {
  */
 
 unsigned int rts_impl(cpu_6502 *cpu, operand_t *operand) {
-    unsigned short jump_vector = pop(cpu) + (pop(cpu) * 0x100);
+    unsigned short jump_vector = pop_address(cpu);
     printf("returning from subroutine to 0x%04x\n", jump_vector + 1);
     cpu->program_counter = jump_vector + 1;
     return 6;
@@ -676,6 +701,35 @@ unsigned int jmp_indr(cpu_6502 *cpu, operand_t *operand) {
     printf("jumping to 0x%04x\n", jump_vector);
     cpu->program_counter = jump_vector;
     return 5;
+}
+
+/* 6D Adds memory to acccumulator with carry (absolute)
+ *
+ * A + M + C -> A, C
+ * 
+ * Sets Negative flag if: Bit 7 of result is active
+ * Sets Zero flag if    : result == 0x0
+ * Sets Carry flag if   : result >  0xff
+ * Sets Overflow flag if: ((A ^ result) & (M ^ result) & 0x80) is non zero
+ * 
+ * Bytes:  3
+ * Cycles: 4
+ */
+
+unsigned int adc_abs(cpu_6502 *cpu, operand_t *operand) {
+    // fetch the second operand of the addition operation
+    // from memory and perform the operation using the
+    // immediate mode instruction
+    unsigned char new_operand[2] = {0x0, 0x0};
+    new_operand[0] = mm_read(cpu->memory_map, operand->address);
+    // make sure to add two additional cycles to account for the fact
+    // that this is an absolute operation, not an immediate one
+    int cycles = adc_imm(cpu, (operand_t*)&new_operand) + 2;
+    // move the program counter forward an extra byte to account
+    // for the additional instruction lengnth over the immediate
+    // operation
+    cpu->program_counter += 1;
+    return cycles;
 }
 
 /* 78 Set interrupt disable status
@@ -1763,9 +1817,9 @@ operation_t instruction_set[0x100] = {
     /* 10 */    bpl_rel , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, clc_impl, NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL,
     /* 20 */    jsr_abs , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, NULL    , and_imm , rol_acc , NULL, bit_abs , NULL    , NULL    , NULL,
     /* 30 */    NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, sec_impl, NULL    , NULL    , NULL, NULL    , and_absx, NULL    , NULL,
-    /* 40 */    NULL    , NULL    , NULL    , NULL, NULL    , eor_zpg , NULL    , NULL, pha_impl, eor_imm , lsr_acc , NULL, jmp_abs , NULL    , NULL    , NULL,
+    /* 40 */    rti_impl, NULL    , NULL    , NULL, NULL    , eor_zpg , NULL    , NULL, pha_impl, eor_imm , lsr_acc , NULL, jmp_abs , NULL    , NULL    , NULL,
     /* 50 */    NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL,
-    /* 60 */    rts_impl, NULL    , NULL    , NULL, NULL    , adc_zpg , NULL    , NULL, pla_impl, adc_imm , ror_acc , NULL, jmp_indr, NULL    , NULL    , NULL,
+    /* 60 */    rts_impl, NULL    , NULL    , NULL, NULL    , adc_zpg , NULL    , NULL, pla_impl, adc_imm , ror_acc , NULL, jmp_indr, adc_abs , NULL    , NULL,
     /* 70 */    NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, sei_impl, NULL    , NULL    , NULL, NULL    , NULL    , ror_absx, NULL,
     /* 80 */    NULL    , NULL    , NULL    , NULL, NULL    , sta_zpg , stx_zpg , NULL, dey_impl, NULL    , txa_impl, NULL, sty_abs , sta_abs , NULL    , NULL,
     /* 90 */    bcc_rel , sta_indy, NULL    , NULL, NULL    , sta_zpgx, NULL    , NULL, tya_impl, sta_absy, txs_impl, NULL, NULL    , sta_absx, NULL    , NULL,
