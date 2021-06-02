@@ -115,12 +115,11 @@ void nes_run(nes_t *nes) {
     int cycles;
     int dots_this_frame = 0;
     int in_vblank       = 0;
+    
     while (1) {
-        cycles = 0;
-
-        if (VBLANK_SIGNALLED) getchar();
-
+       
         // execute the next instruction 
+        cycles = 0;
         cycles += _6502_execute(nes->cpu);
 
         // when vblank is signalled by the ppu, perform a
