@@ -8,5 +8,8 @@ OUT		= bin/nes.exe
 all: $(O_FILES)
 	$(CC) $^ -o $(OUT)
 
+cpu_test:
+	$(CC) test/cpu_test.c src/memory_map.c -o test/test.exe
+
 build/%.o: src/%.c
 	$(CC) -c $^ -o $@

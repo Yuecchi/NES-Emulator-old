@@ -4,9 +4,11 @@
 
 #include "6502.h"
 
+// #define CPU_DEBUG
+
 #define SET_FLAG(C, X) C->status_register |= (0x1 << X)
 #define CLEAR_FLAG(C, X) C->status_register &= (0xff - (0x1 << X))
-#define FLAG(C, X) C->status_register & (0x1 << X)
+#define FLAG(C, X) (C->status_register & (0x1 << X))
 
 enum status_flag_t {
     CARRY,
@@ -18,7 +20,6 @@ enum status_flag_t {
     NEGATIVE
 };
 
-
 // prototype definitions of certain instructions which 
 // are used in other instructions to reduce code size
 unsigned int adc_imm(cpu_6502 *cpu, operand_t *operand);
@@ -28,18 +29,26 @@ unsigned int eor_imm(cpu_6502 *cpu, operand_t *operand);
 void set_status_flags(cpu_6502 *cpu, unsigned char reg) {
     if (reg & 0x80) {
         SET_FLAG(cpu, NEGATIVE);
+#ifdef CPU_DEBUG
         printf("negative status bit set\n");
+#endif
     } else {
         CLEAR_FLAG(cpu ,NEGATIVE);
+#ifdef CPU_DEBUG
         printf("negative status bit cleared\n");
+#endif
     }
     
     if (!reg) {
         SET_FLAG(cpu, ZERO);
+#ifdef CPU_DEBUG
         printf("zero status bit set\n");
+#endif
     } else {
         CLEAR_FLAG(cpu, ZERO);
+#ifdef CPU_DEBUG
         printf("zero status bit cleared\n");
+#endif
     }
 }
 
@@ -233,6 +242,76 @@ unsigned int lsr_exec(cpu_6502 *cpu, unsigned char value) {
     return value;
 }
 
+/* performs a logical bit shift one place to the left
+ * on the given value. The resulting value is used to 
+ * determine the state of the zero, negative and carry
+ * flags where:
+ * 
+ * Z = value == 0x0 
+ * N = value & 0x80
+ * C = 7th bit of value before shift  
+ */
+
+unsigned int asl_exec(cpu_6502 *cpu, unsigned char value) {
+    // store the 7th bit of the value before the shift
+    // so it can be used later to determine the state
+    // of the carry flag
+    unsigned char old_bit_7 = value & 0x80;
+    
+    // perform the shift
+    value <<= 1;
+
+    // determine the state of the zero and negative flags
+    set_status_flags(cpu, value);
+    
+    // set the carry flag equal to the old 7th bit
+    // of the value
+    if (old_bit_7) {
+        SET_FLAG(cpu, CARRY);
+        printf("carry status bit set\n");
+    } else {
+        CLEAR_FLAG(cpu, CARRY);
+        printf("carry status bit cleared\n");
+    }
+
+    return value;
+}
+
+/* Performs a branching operation which sets the program counter equal
+ * to the position of the instruction following the branch instruction
+ * plus the given offset (the offset can be negative). 
+ * 
+ * e.g: PC = PC + 2 + offset
+ * 
+ * The program will branch if the given condition is met, and will move
+ * to the next instruction as normal if the condition is not met.
+ */
+
+unsigned int branch(cpu_6502 *cpu, char offset, unsigned int condition) {
+    // The branch is made relative to the instruction following
+    // the branch instruction, not the branch instruction itself
+    unsigned short jump_vector = cpu->program_counter + 2;
+    // Branch operation are always at least 2 cycles
+    unsigned int cycles = 2;
+    if (condition) {
+        // apply the offset to the jump vector
+        jump_vector += offset;
+        // add an extra cycle since the branch succeeded
+        // and add an additional cycle if the program 
+        // counter is moved to a new page
+        cycles += (1 + page_crossed(cpu->program_counter + 2, jump_vector));
+#ifdef CPU_DEBUG
+        printf("branching to 0x%04x\n", jump_vector);
+#endif
+    } else {
+#ifdef CPU_DEBUG
+        printf("condition not met, branch not taken\n");
+#endif
+    }
+    cpu->program_counter = jump_vector;
+    return cycles;
+}
+
 /* 05 OR memory with accumulator (zeropage)
  * 
  * A OR M -> A
@@ -271,7 +350,9 @@ unsigned int ora_zpg(cpu_6502 *cpu, operand_t *operand) {
 
 unsigned int ora_imm(cpu_6502 *cpu, operand_t *operand) {
     cpu->accumulator |= operand->byte[0];
+#ifdef CPU_DEBUG
     printf("accumulator set to 0x%02x\n", cpu->accumulator);
+#endif
     set_status_flags(cpu, cpu->accumulator);
     cpu->program_counter += 2;
     return 2;
@@ -289,17 +370,29 @@ unsigned int asl_acc(cpu_6502 *cpu, operand_t *operand) {
     // store bit 7 of the accumulator before the shift
     unsigned char old_bit_7 = cpu->accumulator & 0x80;
     cpu->accumulator <<= 1;
+
+#ifdef CPU_DEBUG
     printf("accumulator set to 0x%02x\n", cpu->accumulator);
+#endif
+
+    // determine the state of the zero and negative 
+    // status flags
     set_status_flags(cpu, cpu->accumulator);
+    
     // set the carry flag equal to the old 7th bit
     // of the accumulator
     if (old_bit_7) {
         SET_FLAG(cpu, CARRY);
+#ifdef CPU_DEBUG
         printf("carry status bit set\n");
+#endif
     } else {
         CLEAR_FLAG(cpu, CARRY);
+#ifdef CPU_DEBUG
         printf("carry status bit cleared\n");
+#endif
     }
+
     cpu->program_counter += 1;
     return 2;
 }
@@ -325,21 +418,7 @@ unsigned int asl_acc(cpu_6502 *cpu, operand_t *operand) {
  */
 
 unsigned int bpl_rel(cpu_6502 *cpu, operand_t *operand) {
-    unsigned short jump_vector = cpu->program_counter + 2;
-    unsigned int cycles = 2;
-    if (!(FLAG(cpu, NEGATIVE))) {
-        // must cast to char since jumps can be negative
-        jump_vector += (char)operand->byte[0];
-        // add an extra cycle since the branch succeeded
-        // and add an additional cycle if the program 
-        // counter is moved to a new page
-        cycles += (1 + page_crossed(cpu->program_counter + 2, jump_vector));
-        printf("branching to 0x%04x\n", jump_vector);
-    } else {
-        printf("negative flag was not clear, no action taken\n");
-    }
-    cpu->program_counter = jump_vector;
-    return cycles;
+    return branch(cpu, operand->byte[0], !FLAG(cpu, NEGATIVE));
 }
 
 /* 18 Clear carry flag
@@ -354,7 +433,9 @@ unsigned int bpl_rel(cpu_6502 *cpu, operand_t *operand) {
 
 unsigned int clc_impl(cpu_6502 *cpu, operand_t *operand) {
     CLEAR_FLAG(cpu, CARRY);
+#ifdef CPU_DEBUG
     printf("carry status bit cleared\n");
+#endif
     cpu->program_counter += 1;  
     return 2;
 }
@@ -531,21 +612,7 @@ unsigned int bit_abs(cpu_6502 *cpu, operand_t *operand) {
  */
 
 unsigned int bmi_rel(cpu_6502 *cpu, operand_t *operand) {
-    unsigned short jump_vector = cpu->program_counter + 2;
-    unsigned int cycles = 2;
-    if ((FLAG(cpu, NEGATIVE))) {
-        // must cast to char since jumps can be negative
-        jump_vector += (char)operand->byte[0];
-        // add an extra cycle since the branch succeeded
-        // and add an additional cycle if the program 
-        // counter is moved to a new page
-        cycles += (1 + page_crossed(cpu->program_counter + 2, jump_vector));
-        printf("branching to 0x%04x\n", jump_vector);
-    } else {
-        printf("negative flag was clear, no action taken\n");
-    }
-    cpu->program_counter = jump_vector;
-    return cycles;
+    return branch(cpu, operand->byte[0], FLAG(cpu, NEGATIVE));
 }
 
 /* 38 Set carry flag
@@ -560,7 +627,9 @@ unsigned int bmi_rel(cpu_6502 *cpu, operand_t *operand) {
 
 unsigned int sec_impl(cpu_6502 *cpu, operand_t *operand) {
     SET_FLAG(cpu, CARRY);
+#ifdef CPU_DEBUG
     printf("carry status bit set\n");
+#endif
     cpu->program_counter += 1;  
     return 2;
 }
@@ -698,7 +767,7 @@ unsigned int lsr_acc(cpu_6502 *cpu, operand_t *operand) {
         CLEAR_FLAG(cpu, CARRY);
         printf("carry status bit cleared\n");
     }
-    
+
     cpu->program_counter += 1;
     return 2;
 }
@@ -968,7 +1037,9 @@ unsigned int adc_abs(cpu_6502 *cpu, operand_t *operand) {
 
 unsigned int sei_impl(cpu_6502 *cpu, operand_t *operand) {
     SET_FLAG(cpu, INTERRUPT);
+#ifdef CPU_DEBUG
     printf("interrupt status bit set\n");
+#endif
     cpu->program_counter += 1;
     return 2;
 }
@@ -1054,7 +1125,9 @@ unsigned int sty_zpg(cpu_6502 *cpu, operand_t *operand) {
 
 unsigned int sta_zpg(cpu_6502 *cpu, operand_t *operand) {
     mm_write(cpu->memory_map, operand->byte[0], cpu->accumulator);
+#ifdef CPU_DEBUG
     printf("memory location 0x%04x set to 0x%02x\n", operand->byte[0], mm_read(cpu->memory_map, operand->byte[0]));
+#endif
     cpu->program_counter += 2;
     return 3;
 }
@@ -1189,21 +1262,7 @@ unsigned int stx_abs(cpu_6502 *cpu, operand_t *operand) {
  */
 
 unsigned int bcc_rel(cpu_6502 *cpu, operand_t *operand) {
-    unsigned short jump_vector = cpu->program_counter + 2;
-    unsigned int cycles = 2;
-    if (!(FLAG(cpu, CARRY))) {
-        // must cast to char since jumps can be negative
-        jump_vector += (char)operand->byte[0]; 
-        // add an extra cycle since the branch succeeded
-        // and add an additional cycle if the program 
-        // counter is moved to a new page
-        cycles += (1 + page_crossed(cpu->program_counter + 2, jump_vector));
-        printf("branching to 0x%04x\n", jump_vector);
-    } else {
-        printf("carry flag was not clear, no action taken\n");
-    }
-    cpu->program_counter = jump_vector;
-    return cycles;
+    return branch(cpu, operand->byte[0], !FLAG(cpu, CARRY));
 }
 
 /* 91 Store accumulator in memory (indirect y)
@@ -1416,7 +1475,9 @@ unsigned int ldy_zpg(cpu_6502 *cpu, operand_t *operand) {
 
 unsigned int lda_zpg(cpu_6502 *cpu, operand_t *operand) {
     cpu->accumulator = mm_read(cpu->memory_map, operand->byte[0]);
+#ifdef CPU_DEBUG
     printf("accumulator set to 0x%02x\n", cpu->accumulator);
+#endif
     set_status_flags(cpu, cpu->accumulator);
     cpu->program_counter += 2;
     return 3;
@@ -1471,7 +1532,9 @@ unsigned int tay_impl(cpu_6502 *cpu, operand_t *operand) {
 
 unsigned int lda_imm(cpu_6502 *cpu, operand_t *operand) {
     cpu->accumulator = operand->byte[0];
+#ifdef CPU_DEBUG
     printf("accumulator set to 0x%02x\n", cpu->accumulator);
+#endif
     set_status_flags(cpu, cpu->accumulator);
     cpu->program_counter += 2;
     return 2;
@@ -1577,21 +1640,7 @@ unsigned int ldx_abs(cpu_6502 *cpu, operand_t *operand) {
  */
 
 unsigned int bcs_rel(cpu_6502 *cpu, operand_t *operand) {
-    unsigned short jump_vector = cpu->program_counter + 2;
-    unsigned int cycles = 2;
-    if ((FLAG(cpu, CARRY))) {
-        // must cast to char since jumps can be negative
-        jump_vector += (char)operand->byte[0]; 
-        // add an extra cycle since the branch succeeded
-        // and add an additional cycle if the program 
-        // counter is moved to a new page
-        cycles += (1 + page_crossed(cpu->program_counter + 2, jump_vector));
-        printf("branching to 0x%04x\n", jump_vector);
-    } else {
-        printf("carry flag was clear, no action taken\n");
-    }
-    cpu->program_counter = jump_vector;
-    return cycles;
+    return branch(cpu, operand->byte[0], FLAG(cpu, CARRY));
 }
 
 /* B1 Load accumulator with memory (indirect Y)
@@ -1922,21 +1971,7 @@ unsigned int dec_abs(cpu_6502 *cpu, operand_t *operand) {
  */
 
 unsigned int bne_rel(cpu_6502 *cpu, operand_t *operand) {
-    unsigned short jump_vector = cpu->program_counter + 2;
-    unsigned int cycles = 2;
-    if (!(FLAG(cpu, ZERO))) {
-        // must cast to char since jumps can be negative
-        jump_vector += (char)operand->byte[0];
-        // add an extra cycle since the branch succeeded
-        // and add an additional cycle if the program 
-        // counter is moved to a new page
-        cycles += (1 + page_crossed(cpu->program_counter + 2, jump_vector)); 
-        printf("branching to 0x%04x\n", jump_vector);
-    } else {
-        printf("zero flag was not clear, no action taken\n");
-    }
-    cpu->program_counter = jump_vector;
-    return cycles;
+    return branch(cpu, operand->byte[0], !FLAG(cpu, ZERO));
 }
 
 /* D8 Clear decimal mode
@@ -1950,7 +1985,9 @@ unsigned int bne_rel(cpu_6502 *cpu, operand_t *operand) {
 unsigned int cld_impl(cpu_6502 *cpu, operand_t *operand) {
     CLEAR_FLAG(cpu, DECIMAL);
     cpu->program_counter += 1;
+#ifdef CPU_DEBUG
     printf("decimal status bit cleared\n");
+#endif
     return 2;
 }
 
@@ -2120,21 +2157,7 @@ unsigned int inc_abs(cpu_6502 *cpu, operand_t *operand) {
  */
 
 unsigned int beq_rel(cpu_6502 *cpu, operand_t *operand) {
-    unsigned short jump_vector = cpu->program_counter + 2;
-    unsigned int cycles = 2;
-    if ((FLAG(cpu, ZERO))) {
-        // must cast to char since jumps can be negative
-        jump_vector += (char)operand->byte[0];
-        // add an extra cycle since the branch succeeded
-        // and add an additional cycle if the program 
-        // counter is moved to a new page
-        cycles += (1 + page_crossed(cpu->program_counter + 2, jump_vector)); 
-        printf("branching to 0x%04x\n", jump_vector);
-    } else {
-        printf("zero flag was clear, no action taken\n");
-    }
-    cpu->program_counter = jump_vector;
-    return cycles;
+    return branch(cpu, operand->byte[0], FLAG(cpu, ZERO));
 }
 
 /* F9 Subtract memory from accumulator with borrow (absolute Y)
