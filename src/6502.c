@@ -75,7 +75,7 @@ unsigned short pop_address(cpu_6502 *cpu) {
  *
  * return: 1 if a page change has occured, otherwise 0
  */
-unsigned int page_crossed(unsigned int current_address, unsigned int target_address) {
+unsigned int page_crossed(unsigned short current_address, unsigned short target_address) {
     unsigned int current_page = current_address / 0x100;
     unsigned int target_page  = target_address  / 0x100;
     return current_page != target_page;
@@ -285,12 +285,30 @@ unsigned int asl_exec(cpu_6502 *cpu, unsigned char value) {
  * 
  * The program will branch if the given condition is met, and will move
  * to the next instruction as normal if the condition is not met.
+ * 
+ * A branch instruction always takes at least 2 cycles, however they can 
+ * take 3 or 4 cycles depdning on certain conditions.
+ * 
+ *      - If the condition IS NOT met, then no branch takes place, and 
+ *        the instruction takes 2 cycles.
+ * 
+ *      - If the condition IS met, then the branch does take place, and 
+ *        the instruction takes at least 3 cycles.
+ * 
+ *      - If the condition IS met and the branch destination is on a 
+ *        different page than the instruction AFTER the branch instruction,
+ *        then the instruction takes 4 cycles
+ * 
+ *      cond not met: 2 cycles
+ *      cond met, destination same page: 3 cycles
+ *      cond met, destination different page: 4 cycles
  */
 
 unsigned int branch(cpu_6502 *cpu, char offset, unsigned int condition) {
     // The branch is made relative to the instruction following
     // the branch instruction, not the branch instruction itself
-    unsigned short jump_vector = cpu->program_counter + 2;
+    unsigned short base_address = cpu->program_counter + 2;
+    unsigned short jump_vector  = base_address;
     // Branch operation are always at least 2 cycles
     unsigned int cycles = 2;
     if (condition) {
@@ -299,7 +317,7 @@ unsigned int branch(cpu_6502 *cpu, char offset, unsigned int condition) {
         // add an extra cycle since the branch succeeded
         // and add an additional cycle if the program 
         // counter is moved to a new page
-        cycles += (1 + page_crossed(cpu->program_counter + 2, jump_vector));
+        cycles += (1 + page_crossed(base_address, jump_vector));
 #ifdef CPU_DEBUG
         printf("branching to 0x%04x\n", jump_vector);
 #endif
@@ -701,6 +719,26 @@ unsigned int eor_zpg(cpu_6502 *cpu, operand_t *operand) {
     return eor_imm(cpu, (operand_t*)&new_operand) + 1;
 }
 
+/* 46 Shift right one bit (zeropage)
+ *
+ * A >> 1 -> A
+ * 
+ * Bytes:  2
+ * Cycles: 5
+ */
+
+unsigned int lsr_zpg(cpu_6502 *cpu, operand_t *operand) {
+    // fetch the value from memory
+    unsigned short target_address = operand->byte[0];
+    unsigned char value = mm_read(cpu->memory_map, target_address);
+    // execute the shift operation and store the modifed value in memory
+    value = lsr_exec(cpu, value);
+    mm_write(cpu->memory_map, target_address, value);
+    printf("LSR: memory location 0x%04x set to 0x%02x\n", target_address, value);
+    cpu->program_counter += 2;
+    return 5;
+}
+
 /* 48 Push accumulator onto stack
  *
  * push A
@@ -772,26 +810,6 @@ unsigned int lsr_acc(cpu_6502 *cpu, operand_t *operand) {
     return 2;
 }
 
-/* 46 Shift right one bit (zeropage)
- *
- * A >> 1 -> A
- * 
- * Bytes:  2
- * Cycles: 5
- */
-
-unsigned int lsr_zpg(cpu_6502 *cpu, operand_t *operand) {
-    // fetch the value from memory
-    unsigned short target_address = operand->byte[0];
-    unsigned char value = mm_read(cpu->memory_map, target_address);
-    // execute the shift operation and store the modifed value in memory
-    value = lsr_exec(cpu, value);
-    mm_write(cpu->memory_map, target_address, value);
-    printf("LSR: memory location 0x%04x set to 0x%02x\n", target_address, value);
-    cpu->program_counter += 2;
-    return 5;
-}
-
 /* 4C Jump to new location (absolute)
  *
  * operand -> PC
@@ -808,6 +826,30 @@ unsigned int jmp_abs(cpu_6502 *cpu, operand_t *operand) {
     printf("jumping to 0x%04x\n", jump_vector);
     cpu->program_counter = jump_vector;
     return 3;
+}
+
+/* 50 Branch on overflow clear (relative)
+ *
+ * Branch on V = 0
+ *
+ * If the overflow flag is clear, then change
+ * the value of the program counter by the value
+ * of the operand
+ * 
+ * Bytes:  2
+ * Cycles: 2 if no branching operation occurs
+ *         3 if the branching operation occurs
+ *         4 if the branching operation occurs 
+ *           and the destination is on a new page
+ * 
+ * note: A page boundry crossing occurs when the
+ *       branch destination is on a different page 
+ *       than the instruction AFTER the branch 
+ *       instruction
+ */
+
+unsigned int bvc_rel(cpu_6502 *cpu, operand_t *operand) {
+    return branch(cpu, operand->byte[0], !FLAG(cpu, OVERFLOW));
 }
 
 /* 60 Return from suboutine
@@ -2199,7 +2241,7 @@ operation_t instruction_set[0x100] = {
     /* 20 */    jsr_abs , NULL    , NULL    , NULL, bit_zpg , NULL    , rol_zpg , NULL, NULL    , and_imm , rol_acc , NULL, bit_abs , NULL    , NULL    , NULL,
     /* 30 */    bmi_rel , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, sec_impl, NULL    , NULL    , NULL, NULL    , and_absx, NULL    , NULL,
     /* 40 */    rti_impl, NULL    , NULL    , NULL, NULL    , eor_zpg , lsr_zpg , NULL, pha_impl, eor_imm , lsr_acc , NULL, jmp_abs , NULL    , NULL    , NULL,
-    /* 50 */    NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL,
+    /* 50 */    bvc_rel , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL,
     /* 60 */    rts_impl, NULL    , NULL    , NULL, NULL    , adc_zpg , NULL    , NULL, pla_impl, adc_imm , ror_acc , NULL, jmp_indr, adc_abs , NULL    , NULL,
     /* 70 */    NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, sei_impl, adc_absy, NULL    , NULL, NULL    , NULL    , ror_absx, NULL,
     /* 80 */    NULL    , NULL    , NULL    , NULL, sty_zpg , sta_zpg , stx_zpg , NULL, dey_impl, NULL    , txa_impl, NULL, sty_abs , sta_abs , stx_abs , NULL,

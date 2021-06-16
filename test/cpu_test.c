@@ -199,10 +199,14 @@ unsigned int bpl_rel_test(cpu_6502 *cpu) {
         for (unsigned char offset = 0x1;; offset += 0x1) {
             for (int cond = 0x0; cond < 0x2; cond += 0x1) {
                 
-                // switch the condition
+                // switch the condition. If the condition is true
+                // the negative flag is cleared i.e: the result is
+                // positive and the branch occurs.
                 if (cond) {
+                    // positive result, will branch (N = 0)
                     CLEAR_FLAG(cpu, NEGATIVE);
                 } else {
+                    // negative result, won't branch (N = 1)
                     SET_FLAG(cpu, NEGATIVE);
                 }
                 
@@ -212,8 +216,21 @@ unsigned int bpl_rel_test(cpu_6502 *cpu) {
                 unsigned int cycles = bpl_rel(cpu, (operand_t*)&operand);
                 
                 // verify that the correct address is branched to
-                unsigned short expected_address = addr + 2 + (cond * (char)offset);
+                unsigned short base_address = addr + 2;
+                unsigned short expected_address = base_address + (cond * (char)offset);
                 if (cpu->program_counter != expected_address) return 0; 
+
+                // verify the correct number of cycles is returned
+                unsigned int expected_cycles = 2;
+                if (cond) {
+                    expected_cycles += (cond + page_crossed(base_address, cpu->program_counter));
+                }
+                if (cycles != expected_cycles) {
+                    printf("expected cycles: %i\nactual cycles: %i\n", expected_cycles, cycles);
+                    printf("base address: 0x%04x\nbranch destination: 0x%04x\n", base_address, cpu->program_counter);
+                    return 0;
+                }
+
             }
             if (!offset) break;
         }
