@@ -175,6 +175,55 @@ unsigned int asl_acc_test(cpu_6502 *cpu) {
     return 1;     
 }
 
+/* Tests that bpl_rel correctly modifies the value of the
+ * program counter whether the condition for the branch 
+ * is met or not. Also verifies that the correct number of
+ * cycles are returned by the function.
+ * 
+ * If the condition is not met:
+ *      cycles: 2
+ *      pc = pc + 2 
+ *
+ * If the condition is met:
+ *      cycles: 3 if no page boundry is crossed
+ *      cycles: 4 if a page boundry is crossed
+ *      pc = pc + 2 + operand
+ * 
+ * opcode: 10
+ */
+
+unsigned int bpl_rel_test(cpu_6502 *cpu) {
+    // check every possibly offset, from every possible address
+    // when the condition is both met and not met
+    for (unsigned short addr = 0x1;; addr += 0x1) {
+        for (unsigned char offset = 0x1;; offset += 0x1) {
+            for (int cond = 0x0; cond < 0x2; cond += 0x1) {
+                
+                // switch the condition
+                if (cond) {
+                    CLEAR_FLAG(cpu, NEGATIVE);
+                } else {
+                    SET_FLAG(cpu, NEGATIVE);
+                }
+                
+                // execute the instruction
+                cpu->program_counter = addr;
+                unsigned char operand[2] = {offset, 0x0};
+                unsigned int cycles = bpl_rel(cpu, (operand_t*)&operand);
+                
+                // verify that the correct address is branched to
+                unsigned short expected_address = addr + 2 + (cond * (char)offset);
+                if (cpu->program_counter != expected_address) return 0; 
+            }
+            if (!offset) break;
+        }
+        print_cpu_status(cpu);
+        if (!addr) break;
+    }
+    printf("test 'bpl_rel_test' passed\n");
+    return 1;
+}
+
 /* Tests that clc_impl successfully clears the carry flag
  *
  * opcode: 18
@@ -387,8 +436,7 @@ int main() {
     run_test(asl_acc_test,  cpu, memory);
     run_test(clc_impl_test, cpu, memory);
     run_test(sec_impl_test, cpu, memory);
-
-    run_test(sec_impl_test, cpu, memory);
+    run_test(bpl_rel_test, cpu, memory);
 
     return 0;
 }
