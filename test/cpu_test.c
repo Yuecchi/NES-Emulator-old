@@ -265,6 +265,72 @@ unsigned int clc_impl_test(cpu_6502 *cpu) {
     return 1;
 }
 
+/* Tests that bmi_rel correctly modifies the value of the
+ * program counter whether the condition for the branch 
+ * is met or not. Also verifies that the correct number of
+ * cycles are returned by the function.
+ * 
+ * If the condition is not met:
+ *      cycles: 2
+ *      pc = pc + 2 
+ *
+ * If the condition is met:
+ *      cycles: 3 if no page boundry is crossed
+ *      cycles: 4 if a page boundry is crossed
+ *      pc = pc + 2 + operand
+ * 
+ * opcode: 30
+ */
+
+unsigned int bmi_rel_test(cpu_6502 *cpu) {
+    // check every possibly offset, from every possible address
+    // when the condition is both met and not met
+    for (unsigned short addr = 0x1;; addr += 0x1) {
+        for (unsigned char offset = 0x1;; offset += 0x1) {
+            for (int cond = 0x0; cond < 0x2; cond += 0x1) {
+                
+                // switch the condition. If the condition is true
+                // the negative flag is set i.e: the result is
+                // negative and the branch occurs.
+                if (cond) {
+                    // negative result, will branch (N = 1)
+                    SET_FLAG(cpu, NEGATIVE);
+                } else {
+                    // positive result, won't branch (N = 0)
+                    CLEAR_FLAG(cpu, NEGATIVE);
+                }
+                
+                // execute the instruction
+                cpu->program_counter = addr;
+                unsigned char operand[2] = {offset, 0x0};
+                unsigned int cycles = bmi_rel(cpu, (operand_t*)&operand);
+                
+                // verify that the correct address is branched to
+                unsigned short base_address = addr + 2;
+                unsigned short expected_address = base_address + (cond * (char)offset);
+                if (cpu->program_counter != expected_address) return 0; 
+
+                // verify the correct number of cycles is returned
+                unsigned int expected_cycles = 2;
+                if (cond) {
+                    expected_cycles += (cond + page_crossed(base_address, cpu->program_counter));
+                }
+                if (cycles != expected_cycles) {
+                    printf("expected cycles: %i\nactual cycles: %i\n", expected_cycles, cycles);
+                    printf("base address: 0x%04x\nbranch destination: 0x%04x\n", base_address, cpu->program_counter);
+                    return 0;
+                }
+
+            }
+            if (!offset) break;
+        }
+        print_cpu_status(cpu);
+        if (!addr) break;
+    }
+    printf("test 'bmi_rel_test' passed\n");
+    return 1;
+}
+
 /* Tests that sec_impl successfully sets the carry flag
  *
  * opcode: 38
@@ -286,6 +352,134 @@ unsigned int sec_impl_test(cpu_6502 *cpu) {
 
     printf("test 'sec_impl_test' passed\n");
 
+    return 1;
+}
+
+/* Tests that bvc_rel correctly modifies the value of the
+ * program counter whether the condition for the branch 
+ * is met or not. Also verifies that the correct number of
+ * cycles are returned by the function.
+ * 
+ * If the condition is not met:
+ *      cycles: 2
+ *      pc = pc + 2 
+ *
+ * If the condition is met:
+ *      cycles: 3 if no page boundry is crossed
+ *      cycles: 4 if a page boundry is crossed
+ *      pc = pc + 2 + operand
+ * 
+ * opcode: 50
+ */
+
+unsigned int bvc_rel_test(cpu_6502 *cpu) {
+    // check every possibly offset, from every possible address
+    // when the condition is both met and not met
+    for (unsigned short addr = 0x1;; addr += 0x1) {
+        for (unsigned char offset = 0x1;; offset += 0x1) {
+            for (int cond = 0x0; cond < 0x2; cond += 0x1) {
+                
+                // switch the condition.
+                if (cond) {
+                    // will branch (V = 0)
+                    CLEAR_FLAG(cpu, OVERFLOW);
+                } else {
+                    // won't branch (V = 1)
+                    SET_FLAG(cpu, OVERFLOW);
+                }
+                
+                // execute the instruction
+                cpu->program_counter = addr;
+                unsigned char operand[2] = {offset, 0x0};
+                unsigned int cycles = bvc_rel(cpu, (operand_t*)&operand);
+                
+                // verify that the correct address is branched to
+                unsigned short base_address = addr + 2;
+                unsigned short expected_address = base_address + (cond * (char)offset);
+                if (cpu->program_counter != expected_address) return 0; 
+
+                // verify the correct number of cycles is returned
+                unsigned int expected_cycles = 2;
+                if (cond) {
+                    expected_cycles += (cond + page_crossed(base_address, cpu->program_counter));
+                }
+                if (cycles != expected_cycles) {
+                    printf("expected cycles: %i\nactual cycles: %i\n", expected_cycles, cycles);
+                    printf("base address: 0x%04x\nbranch destination: 0x%04x\n", base_address, cpu->program_counter);
+                    return 0;
+                }
+
+            }
+            if (!offset) break;
+        }
+        print_cpu_status(cpu);
+        if (!addr) break;
+    }
+    printf("test 'bvc_rel_test' passed\n");
+    return 1;
+}
+
+/* Tests that bvs_rel correctly modifies the value of the
+ * program counter whether the condition for the branch 
+ * is met or not. Also verifies that the correct number of
+ * cycles are returned by the function.
+ * 
+ * If the condition is not met:
+ *      cycles: 2
+ *      pc = pc + 2 
+ *
+ * If the condition is met:
+ *      cycles: 3 if no page boundry is crossed
+ *      cycles: 4 if a page boundry is crossed
+ *      pc = pc + 2 + operand
+ * 
+ * opcode: 70
+ */
+
+unsigned int bvs_rel_test(cpu_6502 *cpu) {
+    // check every possibly offset, from every possible address
+    // when the condition is both met and not met
+    for (unsigned short addr = 0x1;; addr += 0x1) {
+        for (unsigned char offset = 0x1;; offset += 0x1) {
+            for (int cond = 0x0; cond < 0x2; cond += 0x1) {
+                
+                // switch the condition.
+                if (cond) {
+                    // nwill branch (V = 1)
+                    SET_FLAG(cpu, OVERFLOW);
+                } else {
+                    // won't branch (V = 0)
+                    CLEAR_FLAG(cpu, OVERFLOW);
+                }
+                
+                // execute the instruction
+                cpu->program_counter = addr;
+                unsigned char operand[2] = {offset, 0x0};
+                unsigned int cycles = bvs_rel(cpu, (operand_t*)&operand);
+                
+                // verify that the correct address is branched to
+                unsigned short base_address = addr + 2;
+                unsigned short expected_address = base_address + (cond * (char)offset);
+                if (cpu->program_counter != expected_address) return 0; 
+
+                // verify the correct number of cycles is returned
+                unsigned int expected_cycles = 2;
+                if (cond) {
+                    expected_cycles += (cond + page_crossed(base_address, cpu->program_counter));
+                }
+                if (cycles != expected_cycles) {
+                    printf("expected cycles: %i\nactual cycles: %i\n", expected_cycles, cycles);
+                    printf("base address: 0x%04x\nbranch destination: 0x%04x\n", base_address, cpu->program_counter);
+                    return 0;
+                }
+
+            }
+            if (!offset) break;
+        }
+        print_cpu_status(cpu);
+        if (!addr) break;
+    }
+    printf("test 'bvs_rel_test' passed\n");
     return 1;
 }
 
@@ -341,6 +535,70 @@ unsigned int sta_zpg_test(cpu_6502 *cpu) {
     }
     printf("test 'sta_zpg_test' passed\n");
     return 1;    
+}
+
+/* Tests that bcc_rel correctly modifies the value of the
+ * program counter whether the condition for the branch 
+ * is met or not. Also verifies that the correct number of
+ * cycles are returned by the function.
+ * 
+ * If the condition is not met:
+ *      cycles: 2
+ *      pc = pc + 2 
+ *
+ * If the condition is met:
+ *      cycles: 3 if no page boundry is crossed
+ *      cycles: 4 if a page boundry is crossed
+ *      pc = pc + 2 + operand
+ * 
+ * opcode: 90
+ */
+
+unsigned int bcc_rel_test(cpu_6502 *cpu) {
+    // check every possibly offset, from every possible address
+    // when the condition is both met and not met
+    for (unsigned short addr = 0x1;; addr += 0x1) {
+        for (unsigned char offset = 0x1;; offset += 0x1) {
+            for (int cond = 0x0; cond < 0x2; cond += 0x1) {
+                
+                // switch the condition.
+                if (cond) {
+                    // will branch (C = 0)
+                    CLEAR_FLAG(cpu, CARRY);
+                } else {
+                    // won't branch (C = 1)
+                    SET_FLAG(cpu, CARRY);
+                }
+                
+                // execute the instruction
+                cpu->program_counter = addr;
+                unsigned char operand[2] = {offset, 0x0};
+                unsigned int cycles = bcc_rel(cpu, (operand_t*)&operand);
+                
+                // verify that the correct address is branched to
+                unsigned short base_address = addr + 2;
+                unsigned short expected_address = base_address + (cond * (char)offset);
+                if (cpu->program_counter != expected_address) return 0; 
+
+                // verify the correct number of cycles is returned
+                unsigned int expected_cycles = 2;
+                if (cond) {
+                    expected_cycles += (cond + page_crossed(base_address, cpu->program_counter));
+                }
+                if (cycles != expected_cycles) {
+                    printf("expected cycles: %i\nactual cycles: %i\n", expected_cycles, cycles);
+                    printf("base address: 0x%04x\nbranch destination: 0x%04x\n", base_address, cpu->program_counter);
+                    return 0;
+                }
+
+            }
+            if (!offset) break;
+        }
+        print_cpu_status(cpu);
+        if (!addr) break;
+    }
+    printf("test 'bcc_rel_test' passed\n");
+    return 1;
 }
 
 /* Tests that lda_zpg successfully sets the value held  
@@ -405,6 +663,134 @@ unsigned int lda_imm_test(cpu_6502 *cpu) {
     return 1;
 }
 
+/* Tests that bcs_rel correctly modifies the value of the
+ * program counter whether the condition for the branch 
+ * is met or not. Also verifies that the correct number of
+ * cycles are returned by the function.
+ * 
+ * If the condition is not met:
+ *      cycles: 2
+ *      pc = pc + 2 
+ *
+ * If the condition is met:
+ *      cycles: 3 if no page boundry is crossed
+ *      cycles: 4 if a page boundry is crossed
+ *      pc = pc + 2 + operand
+ * 
+ * opcode: B0
+ */
+
+unsigned int bcs_rel_test(cpu_6502 *cpu) {
+    // check every possibly offset, from every possible address
+    // when the condition is both met and not met
+    for (unsigned short addr = 0x1;; addr += 0x1) {
+        for (unsigned char offset = 0x1;; offset += 0x1) {
+            for (int cond = 0x0; cond < 0x2; cond += 0x1) {
+                
+                // switch the condition.
+                if (cond) {
+                    // will branch (C = 1)
+                    SET_FLAG(cpu, CARRY);
+                } else {
+                    // won't branch (C = 0)
+                    CLEAR_FLAG(cpu, CARRY);
+                }
+                
+                // execute the instruction
+                cpu->program_counter = addr;
+                unsigned char operand[2] = {offset, 0x0};
+                unsigned int cycles = bcs_rel(cpu, (operand_t*)&operand);
+                
+                // verify that the correct address is branched to
+                unsigned short base_address = addr + 2;
+                unsigned short expected_address = base_address + (cond * (char)offset);
+                if (cpu->program_counter != expected_address) return 0; 
+
+                // verify the correct number of cycles is returned
+                unsigned int expected_cycles = 2;
+                if (cond) {
+                    expected_cycles += (cond + page_crossed(base_address, cpu->program_counter));
+                }
+                if (cycles != expected_cycles) {
+                    printf("expected cycles: %i\nactual cycles: %i\n", expected_cycles, cycles);
+                    printf("base address: 0x%04x\nbranch destination: 0x%04x\n", base_address, cpu->program_counter);
+                    return 0;
+                }
+
+            }
+            if (!offset) break;
+        }
+        print_cpu_status(cpu);
+        if (!addr) break;
+    }
+    printf("test 'bcs_rel_test' passed\n");
+    return 1;
+}
+
+/* Tests that bne_rel correctly modifies the value of the
+ * program counter whether the condition for the branch 
+ * is met or not. Also verifies that the correct number of
+ * cycles are returned by the function.
+ * 
+ * If the condition is not met:
+ *      cycles: 2
+ *      pc = pc + 2 
+ *
+ * If the condition is met:
+ *      cycles: 3 if no page boundry is crossed
+ *      cycles: 4 if a page boundry is crossed
+ *      pc = pc + 2 + operand
+ * 
+ * opcode: D0
+ */
+
+unsigned int bne_rel_test(cpu_6502 *cpu) {
+    // check every possibly offset, from every possible address
+    // when the condition is both met and not met
+    for (unsigned short addr = 0x1;; addr += 0x1) {
+        for (unsigned char offset = 0x1;; offset += 0x1) {
+            for (int cond = 0x0; cond < 0x2; cond += 0x1) {
+                
+                // switch the condition.
+                if (cond) {
+                    // will branch (Z = 0)
+                    CLEAR_FLAG(cpu, ZERO);
+                } else {
+                    // won't branch (Z = 1)
+                    SET_FLAG(cpu, ZERO);
+                }
+                
+                // execute the instruction
+                cpu->program_counter = addr;
+                unsigned char operand[2] = {offset, 0x0};
+                unsigned int cycles = bne_rel(cpu, (operand_t*)&operand);
+                
+                // verify that the correct address is branched to
+                unsigned short base_address = addr + 2;
+                unsigned short expected_address = base_address + (cond * (char)offset);
+                if (cpu->program_counter != expected_address) return 0; 
+
+                // verify the correct number of cycles is returned
+                unsigned int expected_cycles = 2;
+                if (cond) {
+                    expected_cycles += (cond + page_crossed(base_address, cpu->program_counter));
+                }
+                if (cycles != expected_cycles) {
+                    printf("expected cycles: %i\nactual cycles: %i\n", expected_cycles, cycles);
+                    printf("base address: 0x%04x\nbranch destination: 0x%04x\n", base_address, cpu->program_counter);
+                    return 0;
+                }
+
+            }
+            if (!offset) break;
+        }
+        print_cpu_status(cpu);
+        if (!addr) break;
+    }
+    printf("test 'bne_rel_test' passed\n");
+    return 1;
+}
+
 /* Tests that cld_impl successfully clears the decimal flag
  *
  * opcode: D8
@@ -426,6 +812,70 @@ unsigned int cld_impl_test(cpu_6502 *cpu) {
 
     printf("test 'cld_impl_test' passed\n");
 
+    return 1;
+}
+
+/* Tests that beq_rel correctly modifies the value of the
+ * program counter whether the condition for the branch 
+ * is met or not. Also verifies that the correct number of
+ * cycles are returned by the function.
+ * 
+ * If the condition is not met:
+ *      cycles: 2
+ *      pc = pc + 2 
+ *
+ * If the condition is met:
+ *      cycles: 3 if no page boundry is crossed
+ *      cycles: 4 if a page boundry is crossed
+ *      pc = pc + 2 + operand
+ * 
+ * opcode: F0
+ */
+
+unsigned int beq_rel_test(cpu_6502 *cpu) {
+    // check every possibly offset, from every possible address
+    // when the condition is both met and not met
+    for (unsigned short addr = 0x1;; addr += 0x1) {
+        for (unsigned char offset = 0x1;; offset += 0x1) {
+            for (int cond = 0x0; cond < 0x2; cond += 0x1) {
+                
+                // switch the condition.
+                if (cond) {
+                    // will branch (Z = 1)
+                    SET_FLAG(cpu, ZERO);
+                } else {
+                    // won't branch (Z = 0)
+                    CLEAR_FLAG(cpu, ZERO);
+                }
+                
+                // execute the instruction
+                cpu->program_counter = addr;
+                unsigned char operand[2] = {offset, 0x0};
+                unsigned int cycles = beq_rel(cpu, (operand_t*)&operand);
+                
+                // verify that the correct address is branched to
+                unsigned short base_address = addr + 2;
+                unsigned short expected_address = base_address + (cond * (char)offset);
+                if (cpu->program_counter != expected_address) return 0; 
+
+                // verify the correct number of cycles is returned
+                unsigned int expected_cycles = 2;
+                if (cond) {
+                    expected_cycles += (cond + page_crossed(base_address, cpu->program_counter));
+                }
+                if (cycles != expected_cycles) {
+                    printf("expected cycles: %i\nactual cycles: %i\n", expected_cycles, cycles);
+                    printf("base address: 0x%04x\nbranch destination: 0x%04x\n", base_address, cpu->program_counter);
+                    return 0;
+                }
+
+            }
+            if (!offset) break;
+        }
+        print_cpu_status(cpu);
+        if (!addr) break;
+    }
+    printf("test 'beq_rel_test' passed\n");
     return 1;
 }
 
@@ -453,7 +903,16 @@ int main() {
     run_test(asl_acc_test,  cpu, memory);
     run_test(clc_impl_test, cpu, memory);
     run_test(sec_impl_test, cpu, memory);
+    
+    // branch instructions
     run_test(bpl_rel_test, cpu, memory);
+    run_test(bvc_rel_test, cpu, memory);
+    run_test(bmi_rel_test, cpu, memory);
+    run_test(bvs_rel_test, cpu, memory);
+    run_test(bcc_rel_test, cpu, memory);
+    run_test(bcs_rel_test, cpu, memory);
+    run_test(bne_rel_test, cpu, memory);
+    run_test(beq_rel_test, cpu, memory);
 
     return 0;
 }

@@ -1069,6 +1069,30 @@ unsigned int adc_abs(cpu_6502 *cpu, operand_t *operand) {
     return cycles;
 }
 
+/* 70 Branch on overflow set (relative)
+ *
+ * Branch on V = 1
+ *
+ * If the overflow flag is set, then change
+ * the value of the program counter by the value
+ * of the operand
+ * 
+ * Bytes:  2
+ * Cycles: 2 if no branching operation occurs
+ *         3 if the branching operation occurs
+ *         4 if the branching operation occurs 
+ *           and the destination is on a new page
+ * 
+ * note: A page boundry crossing occurs when the
+ *       branch destination is on a different page 
+ *       than the instruction AFTER the branch 
+ *       instruction
+ */
+
+unsigned int bvs_rel(cpu_6502 *cpu, operand_t *operand) {
+    return branch(cpu, operand->byte[0], FLAG(cpu, OVERFLOW));
+}
+
 /* 78 Set interrupt disable status
  * 
  * 1 -> I
@@ -2243,7 +2267,7 @@ operation_t instruction_set[0x100] = {
     /* 40 */    rti_impl, NULL    , NULL    , NULL, NULL    , eor_zpg , lsr_zpg , NULL, pha_impl, eor_imm , lsr_acc , NULL, jmp_abs , NULL    , NULL    , NULL,
     /* 50 */    bvc_rel , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL,
     /* 60 */    rts_impl, NULL    , NULL    , NULL, NULL    , adc_zpg , NULL    , NULL, pla_impl, adc_imm , ror_acc , NULL, jmp_indr, adc_abs , NULL    , NULL,
-    /* 70 */    NULL    , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, sei_impl, adc_absy, NULL    , NULL, NULL    , NULL    , ror_absx, NULL,
+    /* 70 */    bvs_rel , NULL    , NULL    , NULL, NULL    , NULL    , NULL    , NULL, sei_impl, adc_absy, NULL    , NULL, NULL    , NULL    , ror_absx, NULL,
     /* 80 */    NULL    , NULL    , NULL    , NULL, sty_zpg , sta_zpg , stx_zpg , NULL, dey_impl, NULL    , txa_impl, NULL, sty_abs , sta_abs , stx_abs , NULL,
     /* 90 */    bcc_rel , sta_indy, NULL    , NULL, NULL    , sta_zpgx, NULL    , NULL, tya_impl, sta_absy, txs_impl, NULL, NULL    , sta_absx, NULL    , NULL,
     /* A0 */    ldy_imm , NULL    , ldx_imm , NULL, ldy_zpg , lda_zpg , ldx_zpg , NULL, tay_impl, lda_imm , tax_impl, NULL, ldy_abs , lda_abs , ldx_abs , NULL,
