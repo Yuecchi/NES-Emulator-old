@@ -879,6 +879,22 @@ unsigned int beq_rel_test(cpu_6502 *cpu) {
     return 1;
 }
 
+unsigned int jsr_abs_test(cpu_6502 *cpu) {
+    // test jumps to every possible memory location, from every
+    // possible memory location
+    for (unsigned short addr = 0x0;; addr += 0x1) {
+        for (unsigned short oper = 0x0;; oper += 0x1) {
+            cpu->program_counter = addr;
+            unsigned short operand[2];
+            memcpy(operand, &oper, sizeof(unsigned short));
+            unsigned int cycles = jsr_abs(cpu, (operand_t*)&operand);
+        }
+        if (!addr) break;
+    }
+    printf("test 'jsr_abs_test' passed\n");
+    return 1;
+}
+
 int main() {
 
     srand(time(NULL));

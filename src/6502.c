@@ -26,6 +26,10 @@ unsigned int adc_imm(cpu_6502 *cpu, operand_t *operand);
 unsigned int ora_imm(cpu_6502 *cpu, operand_t *operand);
 unsigned int eor_imm(cpu_6502 *cpu, operand_t *operand);
 
+/*
+ *
+ */
+
 void set_status_flags(cpu_6502 *cpu, unsigned char reg) {
     if (reg & 0x80) {
         SET_FLAG(cpu, NEGATIVE);
@@ -52,12 +56,20 @@ void set_status_flags(cpu_6502 *cpu, unsigned char reg) {
     }
 }
 
+/*
+ *
+ */
+
 void push(cpu_6502 *cpu, unsigned char byte) {
     unsigned short stack_location = cpu->stack_pointer + 0x100;
     printf("pushing 0x%02x to stack location 0x%04x\n", byte, stack_location);
     mm_write(cpu->memory_map, stack_location, byte);
     cpu->stack_pointer -= 1;
 }
+
+/*
+ *
+ */
 
 unsigned char pop(cpu_6502 *cpu) {
     cpu->stack_pointer += 1;
@@ -66,6 +78,10 @@ unsigned char pop(cpu_6502 *cpu) {
     printf("popping element 0x%02x from stack at location 0x%04x\n", byte, stack_location);
     return byte;
 }
+
+/*
+ *
+ */
 
 unsigned short pop_address(cpu_6502 *cpu) {
     return pop(cpu) + (pop(cpu) * 0x100);
@@ -148,6 +164,25 @@ void bit_exec(cpu_6502 *cpu, unsigned char value) {
     }
 }
 
+/* executes the 'rotate right' operation
+ *
+ * This operation shifts all bits of the operand right by one position.
+ * After the shift occurs, the value of the carry flag is assigned to the
+ * leftmost bit of the operand (bit 7). Additionally, after this occurs, 
+ * the carry flag then takes the value of the old rightmost bit (bit 0).
+ * 
+ * e.g:
+ *         
+ * 1. 76543210 -> C7654321 (shift right, and set leftmost bit to old C)
+ * 2.        '--> C        (set C to value of old 0th bit)
+ * 
+ * Additionally, the negative flag becomes equal to the leftmost bit of
+ * the result. In other words, the negative flag will be equal to whatever 
+ * the carry flag was before the operation. The zero flag is also affected by 
+ * this operation, where if the result of the operation is zero, then the 
+ * zero flag will be set, and will be cleared otherwise.
+ */
+
 unsigned char ror_exec(cpu_6502 *cpu, unsigned char value) {
     // store the 0th bit of the value so it can be used
     // later to determine the state of the carry flag 
@@ -169,14 +204,37 @@ unsigned char ror_exec(cpu_6502 *cpu, unsigned char value) {
     // determine the state of the carry flag
     if (old_bit_0) {
         SET_FLAG(cpu, CARRY);
+#ifdef CPU_DEBUG
         printf("carry status bit set\n");
+#endif
     } else {
         CLEAR_FLAG(cpu, CARRY);
+#ifdef CPU_DEBUG
         printf("carry status bit cleared\n");
+#endif
     }
 
     return value;
 }
+
+/* executes the 'rotate left' operation
+ *
+ * This operation shifts all bits of the operand left by one position.
+ * After the shift occurs, the value of the carry flag is assigned to the
+ * rightmost bit of the operand (bit 0). Additionally, after this occurs, 
+ * the carry flag then takes the value of the old leftmost bit (bit 7).
+ * 
+ * e.g:
+ *         
+ * 1. 76543210 -> 6543210C (shift left, and set rightmost bit to old C)
+ * 2. '---------> C        (set C to value of old 7th bit)
+ * 
+ * Additionally, the negative flag becomes equal to the leftmost bit of
+ * the result. In other words, the negative flag will be equal to whatever 
+ * the 6th bit was before the operation. The zero flag is also affected by 
+ * this operation, where if the result of the operation is zero, then the 
+ * zero flag will be set, and will be cleared otherwise.
+ */
 
 unsigned char rol_exec(cpu_6502 *cpu, unsigned char value) {
     // store the 7th bit of the value so it can be used
@@ -198,10 +256,14 @@ unsigned char rol_exec(cpu_6502 *cpu, unsigned char value) {
     // determine the state of the carry flag
     if (old_bit_7) {
         SET_FLAG(cpu, CARRY);
+#ifdef CPU_DEBUG
         printf("carry status bit set\n");
+#endif
     } else {
         CLEAR_FLAG(cpu, CARRY);
+#ifdef CPU_DEBUG
         printf("carry status bit cleared\n");
+#endif
     }
 
     return value;
@@ -217,7 +279,7 @@ unsigned char rol_exec(cpu_6502 *cpu, unsigned char value) {
  * C = 0th bit of value before shift  
  */
 
-unsigned int lsr_exec(cpu_6502 *cpu, unsigned char value) {
+unsigned char lsr_exec(cpu_6502 *cpu, unsigned char value) {
     // store the 0th bit of the value before the shift
     // so it can be used later to determine the state
     // of the carry flag
@@ -233,10 +295,14 @@ unsigned int lsr_exec(cpu_6502 *cpu, unsigned char value) {
     // of the value
     if (old_bit_0) {
         SET_FLAG(cpu, CARRY);
+#ifdef CPU_DEBUG
         printf("carry status bit set\n");
+#endif
     } else {
         CLEAR_FLAG(cpu, CARRY);
+#ifdef CPU_DEBUG
         printf("carry status bit cleared\n");
+#endif
     }
 
     return value;
@@ -252,7 +318,7 @@ unsigned int lsr_exec(cpu_6502 *cpu, unsigned char value) {
  * C = 7th bit of value before shift  
  */
 
-unsigned int asl_exec(cpu_6502 *cpu, unsigned char value) {
+unsigned char asl_exec(cpu_6502 *cpu, unsigned char value) {
     // store the 7th bit of the value before the shift
     // so it can be used later to determine the state
     // of the carry flag
@@ -268,10 +334,14 @@ unsigned int asl_exec(cpu_6502 *cpu, unsigned char value) {
     // of the value
     if (old_bit_7) {
         SET_FLAG(cpu, CARRY);
+#ifdef CPU_DEBUG
         printf("carry status bit set\n");
+#endif
     } else {
         CLEAR_FLAG(cpu, CARRY);
+#ifdef CPU_DEBUG
         printf("carry status bit cleared\n");
+#endif
     }
 
     return value;
@@ -347,7 +417,7 @@ unsigned int ora_zpg(cpu_6502 *cpu, operand_t *operand) {
     // fetch the operand of the OR operation from the given
     // zeropage memory location and perform the operation 
     // using the immediate mode instruction
-    unsigned char new_operand[2]= {0x0, 0x0};
+    unsigned char new_operand[2] = {0x0, 0x0};
     new_operand[0] = mm_read(cpu->memory_map, operand->byte[0]);
     // make sure to add one additional cycle to account for the fact
     // that this is a zeropage operation, not an immediate one
@@ -462,20 +532,25 @@ unsigned int clc_impl(cpu_6502 *cpu, operand_t *operand) {
  *
  * Sets the program counter to the address indicated
  * by the operand. Before the program counter is 
- * modified, the current value held by the program
- * counter is pushed onto the program stack, hi byte
- * first.
+ * modified, the address of the instruction following
+ * the JSR instruction is pushed onto the program stack,
+ * hi byte first.
  * 
  * Bytes:  3
  * Cycles: 6
  */
 
 unsigned int jsr_abs(cpu_6502 *cpu, operand_t *operand) {
+    // store the location of the subroutine
     unsigned short jump_vector = operand->address;
+    // push the return address onto the stack
     cpu->program_counter += 2;
     push(cpu, (unsigned char)(cpu->program_counter >> 8)); // push hi byte
     push(cpu, (unsigned char)(cpu->program_counter)); // push lo byte
+#ifdef CPU_DEBUG
     printf("jumping to subroutine at 0x%04x\n", jump_vector);
+#endif
+    // execute the jump
     cpu->program_counter = jump_vector;
     return 6;
 }
