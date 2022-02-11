@@ -10,7 +10,7 @@ memory_map_t *create_memory_map(unsigned int capacity) {
     return map;
 }
 
-void mm_add_node(memory_map_t *map, unsigned char **data, unsigned int size) {
+void mm_add_node(memory_map_t *map, unsigned char **data, size_t data_size, unsigned int size) {
     // create a new memory map node and assign its start
     // and end location. The start end location will 
     // indicate the address range this node will occupy 
@@ -23,8 +23,8 @@ void mm_add_node(memory_map_t *map, unsigned char **data, unsigned int size) {
     for (int i = node->start; i < node->end; i += 1) {
         map->buckets[i] = node;
     }
-    map->current_bucket = node->end;
     node->data = data;
+    map->current_bucket = node->end;
 }
 
 unsigned char mm_read(memory_map_t *map, unsigned int address) {

@@ -35,10 +35,9 @@ nes_t *create_nes() {
      * 0x2000 ----------
      *
      */
-    
-    nes->ram = calloc(1, 0x2000);
-    for (int i = 0x0000; i < 0x2000; i += 0x2000) {
-        mm_add_node(nes->memory_map, &nes->ram, 0x2000);
+    nes->ram = calloc(1, 0x800);
+    for (int i = 0x0; i < 0x2000; i += 0x800) {
+        mm_add_node(nes->memory_map, &nes->ram, 0x800);
     }
 
     /*
