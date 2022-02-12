@@ -10,7 +10,7 @@ memory_map_t *create_memory_map(unsigned int capacity) {
     return map;
 }
 
-void mm_add_node(memory_map_t *map, unsigned char **data, size_t data_size, unsigned int size) {
+void mm_add_node(memory_map_t *map, unsigned char **data, unsigned int size) {
     // create a new memory map node and assign its start
     // and end location. The start end location will 
     // indicate the address range this node will occupy 
